@@ -1,0 +1,34 @@
+fhipster/
+├─ bin/
+│  └─ index.js
+├─ package.json
+├─ parser/
+│  ├─ index.js
+│  ├─ type_mapping.js
+│  └─ relationship_mapping.js
+├─ utils/
+│  ├─ file_writer.js
+│  └─ naming.js
+├─ generators/
+│  ├─ api_client_generator.js
+│  ├─ app_shell_generator.js
+│  ├─ routes_generator.js
+│  ├─ enum_generator.js
+│  ├─ model_generator.js
+│  ├─ service_generator.js                 # GET/POST/PUT/PATCH/DELETE + JPA filters + ES search
+│  ├─ entity_controller_generator.js       # paging/search/relations, dialogs
+│  ├─ form_generator.js                    # ResponsiveGrid; single/multi relation inputs
+│  ├─ table_view_generator.js              # search + pagination + horiz scroll + view/edit/delete popups
+│  ├─ table_widgets_generator.js           # SearchField, PaginationBar, Toolbar
+│  ├─ fhipster_input_field_generator.js
+│  ├─ login_controller_generator.js
+│  ├─ login_view_generator.js
+│  ├─ splash_controller_generator.js
+│  ├─ splash_view_generator.js
+│  ├─ home_view_generator.js
+│  ├─ auth_middleware_generator.js         # GetMiddleware (require auth)
+│  ├─ role_middleware_generator.js         # GetMiddleware (role/authority checks)
+│  ├─ auth_service_generator.js            # GetxService (claims, helpers, logout)
+│  ├─ token_decoder_generator.js           # JWT → claims
+│  ├─ unauthorized_view_generator.js
+│  └─ forbidden_view_generator.js

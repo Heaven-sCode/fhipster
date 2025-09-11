@@ -1,0 +1,27 @@
+{
+  "name": "fhipster",
+  "version": "1.0.24",
+  "description": "A CLI tool to convert JHipster JDL to Flutter GetX services and models.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "bin": {
+    "fhipster": "./bin/index.js"
+  },
+  "keywords": [
+    "jdl",
+    "jhipster",
+    "flutter",
+    "getx",
+    "nodejs",
+    "heavenscode",
+    "android",
+    "ios"
+  ],
+  "author": "HeavensCode",
+  "license": "ISC",
+  "dependencies": {
+    "yargs": "^17.7.2"
+  }
+}
