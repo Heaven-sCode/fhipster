@@ -131,6 +131,42 @@ lib/
 
 ---
 
+## 📦 Required packages (`pubspec.yaml`)
+
+Add these to your Flutter project:
+
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State mgmt, routing & HTTP client (GetConnect)
+  get: any
+
+  # Local storage for tokens/session
+  get_storage: any
+
+  # Responsive form/grid layout for web & mobile
+  responsive_grid: any
+```
+
+Install quickly:
+
+```bash
+flutter pub add get get_storage responsive_grid
+```
+
+**Optional (handy):**
+
+```yaml
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+```
+
+---
+
 ## 🧪 Example JDL
 
 ```jdl
@@ -162,7 +198,7 @@ This creates models, services, controllers, forms and a table view for **BlogPos
 
 ## ⚙️ Flutter wiring (once per app)
 
-Add dependencies:
+Add dependencies (if not already):
 
 ```bash
 flutter pub add get get_storage responsive_grid
@@ -245,6 +281,19 @@ final search = await orderService.search(
 ```dart
 await orderService.patch(id, {'status': 'PAID'});
 ```
+
+---
+
+## 🧱 About DataTable
+
+The generated table views use Flutter's built-in **`DataTable`** (from `material.dart`) with horizontal scrolling and custom toolbar/pagination widgets.  
+**No extra package is required** beyond the ones listed above.
+
+**Optional alternatives** if you want richer grid features later:
+
+- `data_table_2` — enhanced `DataTable`
+- `flutter_paginated_data_table_2` — improved paginated table
+- `pluto_grid` or `syncfusion_flutter_datagrid` — full data grids with virtualization
 
 ---
 
