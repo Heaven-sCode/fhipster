@@ -1,271 +1,332 @@
 // generators/api_client_generator.js
 // Emits lib/core/api_client.dart
-// - Central GetConnect client
-// - Keycloak token + refresh (password grant) using Env.get() settings
-// - Auto attaches Authorization header
-// - Single-flight refresh; retries once on 401
-// - Stores tokens/expiries in GetStorage using keys from Env
+// - Dual auth: Keycloak OIDC (password + refresh) or JHipster JWT
+// - Stores tokens/expiries in GetStorage using Env keys
+// - ensureFreshToken() refreshes for Keycloak; JWT has no refresh (by design)
+// - Authenticated HTTP helpers: getJson/postJson/putJson/patchJson/deleteJson
 
 function generateApiClientTemplate() {
   return `import 'dart:async';
 import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
-import 'core/env/env.dart';
+
+import 'env/env.dart';
+import 'auth/token_decoder.dart';
 
 class ApiClient extends GetConnect {
-  final _box = GetStorage();
+  final GetStorage _box = GetStorage();
 
   ApiClient() {
     final env = Env.get();
-    httpClient.baseUrl = env.apiHost;
-    httpClient.timeout = Duration(seconds: env.requestTimeoutSeconds);
-    httpClient.maxAuthRetries = env.maxAuthRetries;
+    httpClient.baseUrl = env.apiHost; // we still pass absolute URLs when needed
+    httpClient.timeout = const Duration(seconds: 30);
 
-    // Attach Authorization and common headers
+    // Attach auth header automatically
     httpClient.addRequestModifier<dynamic>((request) async {
-      if (_isAuthUrl(request.url.toString())) return request;
-
-      if (env.enableAutoRefresh) {
-        await ensureFreshToken();
+      await ensureFreshToken(); // refresh if needed (Keycloak)
+      final at = _accessToken;
+      if (at != null && at.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer ' + at;
       }
-      final token = accessToken;
-      if (token != null && token.isNotEmpty) {
-        request.headers['Authorization'] = 'Bearer ' + token;
-      }
-      request.headers['Accept'] = 'application/json';
-      // Let services override Content-Type (e.g., merge-patch); otherwise default for bodies
-      if ((request.method == 'POST' || request.method == 'PUT' || request.method == 'PATCH') &&
-          !request.headers.containsKey('Content-Type')) {
-        request.headers['Content-Type'] = 'application/json';
-      }
-
-      if (env.enableApiLogging) {
-        // minimal request log
-        // ignore logging credentials (auth endpoints handled separately)
-        print('[ApiClient] -> ' + request.method + ' ' + request.url.toString());
-      }
+      // Default JSON
+      request.headers.putIfAbsent('Content-Type', () => 'application/json');
       return request;
     });
 
-    // On 401, try refresh once and retry
-    httpClient.addAuthenticator<dynamic>((request) async {
-      if (_isAuthUrl(request.url.toString())) return request;
-      final ok = await _refreshAccessToken();
-      if (ok) {
-        final t = accessToken;
-        if (t != null && t.isNotEmpty) {
-          request.headers['Authorization'] = 'Bearer ' + t;
-        }
-      }
-      return request;
-    });
-
+    // Common response handling: bubble 401s for caller to redirect
     httpClient.addResponseModifier((request, response) {
-      if (Env.get().enableApiLogging) {
-        print('[ApiClient] <- ' + response.statusCode.toString() + ' ' + request.url.toString());
-      }
       return response;
     });
   }
 
-  // ====== Storage keys from Env ======
-  String get _kAT => Env.get().storageKeyAccessToken;
-  String get _kRT => Env.get().storageKeyRefreshToken;
-  String get _kATExp => Env.get().storageKeyAccessExpiry;
-  String get _kRTExp => Env.get().storageKeyRefreshExpiry;
+  // ===== Public API used by AuthService =====
 
-  // ====== Token getters/setters ======
-  String? get accessToken => _box.read<String>(_kAT);
-  String? get refreshToken => _box.read<String>(_kRT);
-
-  DateTime? get _accessExp => _readDT(_kATExp);
-  DateTime? get _refreshExp => _readDT(_kRTExp);
-
-  bool get _isAccessExpired => _isExpired(_accessExp);
-  bool get _isRefreshExpired => _isExpired(_refreshExp);
-
-  // ====== Public auth APIs ======
-
-  /// Resource Owner Password flow against Keycloak.
-  /// Make sure your client allows Direct Access Grants and scopes include offline_access.
-  Future<bool> loginWithPassword(String username, String password) async {
+  /// Try to restore a session and refresh tokens if needed.
+  Future<bool> bootstrap() async {
     final env = Env.get();
-    final url = env.tokenEndpoint;
+    final at = _accessToken;
 
-    final body = {
-      'grant_type': 'password',
-      'client_id': env.keycloakClientId,
-      if (env.keycloakClientSecret.isNotEmpty) 'client_secret': env.keycloakClientSecret,
-      'username': username,
-      'password': password,
-      'scope': env.keycloakScopes.join(' ')
-    };
-
-    final res = await post(
-      url,
-      _encodeForm(body),
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    );
-
-    if (res.isOk && res.body is Map) {
-      _persistTokens(Map<String, dynamic>.from(res.body));
+    if (env.isKeycloak) {
+      // If we have a refresh token, try refresh when access missing/expired.
+      if (at == null || _isAccessExpired) {
+        final ok = await _refreshKeycloak();
+        return ok;
+      }
+      return true;
+    } else {
+      // JWT: consider valid if token exists and not expired.
+      if (at == null || _isAccessExpired) return false;
+      // Optional validation call (commented to avoid extra RTT):
+      // final r = await get(_resolve(env.accountEndpoint));
+      // return r.isOk;
       return true;
     }
-    return false;
   }
 
-  /// Try to get into a valid authenticated state at app start.
-  Future<bool> bootstrap() async {
-    if (accessToken == null) return false;
-    if (_isAccessExpired) {
-      return await _refreshAccessToken();
-    }
-    return true;
-  }
-
-  /// Ensure an access token is valid before an API call.
-  Future<void> ensureFreshToken() async {
-    if (accessToken == null) return;
-    if (_isAccessExpired) {
-      await _refreshAccessToken();
-    }
-  }
-
-  /// Logout from Keycloak (optional remote call) and clear local tokens.
-  Future<void> logout() async {
-    try {
-      final env = Env.get();
-      final rt = refreshToken;
-      if (rt != null && rt.isNotEmpty) {
-        final body = {
-          'client_id': env.keycloakClientId,
-          if (env.keycloakClientSecret.isNotEmpty)
-            'client_secret': env.keycloakClientSecret,
-          'refresh_token': rt,
-        };
-        await post(env.logoutEndpoint, _encodeForm(body),
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'});
-      }
-    } finally {
-      clearTokens();
-    }
-  }
-
-  void clearTokens() {
-    _box.remove(_kAT);
-    _box.remove(_kRT);
-    _box.remove(_kATExp);
-    _box.remove(_kRTExp);
-  }
-
-  // ====== Refresh (single-flight) ======
-  Future<void>? _refreshing;
-
-  Future<bool> _refreshAccessToken() async {
-    if (accessToken == null) return false;
-    if (_isRefreshExpired) {
-      clearTokens();
-      return false;
-    }
-
-    // Coalesce concurrent refreshes
-    if (_refreshing != null) {
-      try {
-        await _refreshing;
-        return !_isAccessExpired;
-      } catch (_) {
-        return false;
-      }
-    }
-
-    final c = Completer<void>();
-    _refreshing = c.future;
-
-    try {
-      final env = Env.get();
-      final rt = refreshToken;
-      if (rt == null || rt.isEmpty) {
-        clearTokens();
-        c.complete();
-        _refreshing = null;
-        return false;
-      }
-
+  /// Username/password login.
+  /// Keycloak: password grant
+  /// JWT: POST /api/authenticate -> { id_token }
+  Future<bool> loginWithPassword(String username, String password) async {
+    final env = Env.get();
+    if (env.isKeycloak) {
       final body = {
-        'grant_type': 'refresh_token',
+        'grant_type': 'password',
         'client_id': env.keycloakClientId,
-        if (env.keycloakClientSecret.isNotEmpty) 'client_secret': env.keycloakClientSecret,
-        'refresh_token': rt,
+        'username': username,
+        'password': password,
       };
+      if ((env.keycloakClientSecret ?? '').isNotEmpty) {
+        body['client_secret'] = env.keycloakClientSecret!;
+      }
+      if (env.keycloakScopes.isNotEmpty) {
+        body['scope'] = env.keycloakScopes.join(' ');
+      }
 
       final res = await post(
         env.tokenEndpoint,
-        _encodeForm(body),
+        FormData(body),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       );
 
-      if (res.isOk && res.body is Map) {
-        _persistTokens(Map<String, dynamic>.from(res.body));
-        c.complete();
-        _refreshing = null;
-        return true;
-      } else {
-        clearTokens();
-        c.complete();
-        _refreshing = null;
-        return false;
+      if (!res.isOk) {
+        throw Exception('Keycloak login failed: ' + (res.statusText ?? res.statusCode.toString()));
       }
-    } catch (_) {
-      clearTokens();
-      if (!c.isCompleted) c.complete();
-      _refreshing = null;
+
+      final data = _safeBodyMap(res.body);
+      final access = (data['access_token'] ?? '') as String;
+      final refresh = (data['refresh_token'] ?? '') as String?;
+      final expSec = _asInt(data['expires_in']) ?? 0;
+      final refreshExpSec = _asInt(data['refresh_expires_in']) ?? 0;
+      final now = DateTime.now();
+
+      final atExp = now.add(Duration(seconds: expSec > 5 ? expSec - 5 : expSec));
+      final rtExp = refresh != null && refreshExpSec > 0
+          ? now.add(Duration(seconds: refreshExpSec > 5 ? refreshExpSec - 5 : refreshExpSec))
+          : null;
+
+      _writeTokens(accessToken: access, accessExpiry: atExp, refreshToken: refresh, refreshExpiry: rtExp);
+      return true;
+    } else {
+      // JHipster JWT
+      final endpoint = _resolve(env.jwtAuthEndpoint);
+      final res = await post(
+        endpoint,
+        jsonEncode({'username': username, 'password': password, 'rememberMe': true}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (!res.isOk) {
+        throw Exception('JWT login failed: ' + (res.statusText ?? res.statusCode.toString()));
+      }
+
+      final data = _safeBodyMap(res.body);
+      final token = (data['id_token'] ?? data['token'] ?? '') as String;
+      if (token.isEmpty) throw Exception('JWT login: no token returned');
+
+      // Derive expiry from token 'exp' if present.
+      final claims = decodeJwtClaims(token);
+      final atExp = claimsExpiry(claims) ?? DateTime.now().add(const Duration(hours: 2)); // fallback
+
+      _writeTokens(accessToken: token, accessExpiry: atExp, refreshToken: null, refreshExpiry: null);
+      return true;
+    }
+  }
+
+  /// Ensure we have a non-expired access token.
+  /// Returns true if usable, false if not.
+  Future<bool> ensureFreshToken() async {
+    final env = Env.get();
+
+    // If no token at all, nothing to do.
+    if (_accessToken == null) return false;
+
+    // Still valid?
+    if (!_isAccessExpired) return true;
+
+    if (env.isKeycloak) {
+      return await _refreshKeycloak();
+    } else {
+      // JWT: no refresh; consider invalid and let caller redirect to login.
       return false;
     }
   }
 
-  // ====== Internals ======
-
-  bool _isAuthUrl(String url) {
+  /// Logout and clear local tokens.
+  Future<void> logout() async {
     final env = Env.get();
-    return url.startsWith(env.tokenEndpoint) || url.startsWith(env.logoutEndpoint) ||
-           url.startsWith(env.authorizeEndpoint) || url.startsWith(env.userinfoEndpoint);
+    if (env.isKeycloak) {
+      final rt = _refreshToken;
+      if (rt != null && rt.isNotEmpty) {
+        final body = {
+          'client_id': env.keycloakClientId,
+          'refresh_token': rt,
+        };
+        if ((env.keycloakClientSecret ?? '').isNotEmpty) {
+          body['client_secret'] = env.keycloakClientSecret!;
+        }
+        // Ignore failures; we clear storage anyway
+        await post(
+          env.logoutEndpoint,
+          FormData(body),
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        );
+      }
+    }
+    _clearTokens();
   }
 
-  DateTime? _readDT(String key) {
-    final v = _box.read<String>(key);
-    if (v == null || v.isEmpty) return null;
-    return DateTime.tryParse(v);
+  // ===== Authenticated HTTP helpers for services =====
+
+  Future<Response<dynamic>> getJson(String url, {Map<String, dynamic>? query, bool absolute = false}) async {
+    await ensureFreshToken();
+    final target = absolute ? url : _resolve(url);
+    return get(target, query: query);
   }
 
-  bool _isExpired(DateTime? exp) => exp == null || DateTime.now().isAfter(exp);
+  Future<Response<dynamic>> postJson(String url, dynamic body, {bool absolute = false, Map<String, String>? headers}) async {
+    await ensureFreshToken();
+    final target = absolute ? url : _resolve(url);
+    return post(target, jsonEncode(body), headers: {
+      'Content-Type': 'application/json',
+      if (headers != null) ...headers,
+    });
+  }
 
-  void _persistTokens(Map body) {
+  Future<Response<dynamic>> putJson(String url, dynamic body, {bool absolute = false}) async {
+    await ensureFreshToken();
+    final target = absolute ? url : _resolve(url);
+    return put(target, jsonEncode(body), headers: {'Content-Type': 'application/json'});
+  }
+
+  Future<Response<dynamic>> patchJson(String url, dynamic body, {bool absolute = false, bool mergePatch = true}) async {
+    await ensureFreshToken();
+    final target = absolute ? url : _resolve(url);
+    final contentType = mergePatch ? 'application/merge-patch+json' : 'application/json';
+    return patch(target, jsonEncode(body), headers: {'Content-Type': contentType});
+  }
+
+  Future<Response<dynamic>> deleteJson(String url, {bool absolute = false}) async {
+    await ensureFreshToken();
+    final target = absolute ? url : _resolve(url);
+    return delete(target);
+  }
+
+  // ===== Internals =====
+
+  // Resolve relative path (e.g., '/api/users') against Env.apiHost; leave absolute URLs intact.
+  String _resolve(String pathOrUrl) {
+    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) return pathOrUrl;
     final env = Env.get();
-    final at = body['access_token']?.toString();
-    final rt = body['refresh_token']?.toString();
+    final host = env.apiHost.endsWith('/') ? env.apiHost.substring(0, env.apiHost.length - 1) : env.apiHost;
+    final p = pathOrUrl.startsWith('/') ? pathOrUrl : '/$pathOrUrl';
+    return host + p;
+  }
 
-    // Keycloak: expires_in & refresh_expires_in are seconds from now
-    final ei = int.tryParse(body['expires_in']?.toString() ?? '') ?? 300;
-    final rei = int.tryParse(body['refresh_expires_in']?.toString() ?? '') ?? 1800;
+  bool get _isAccessExpired {
+    final expIso = _box.read<String>(Env.get().storageKeyAccessExpiry);
+    if (expIso == null) {
+      // Try decode from token as last resort
+      final at = _accessToken;
+      return isJwtExpired(at, leewaySeconds: 5);
+    }
+    final exp = DateTime.tryParse(expIso);
+    if (exp == null) return true;
+    return DateTime.now().isAfter(exp);
+  }
 
-    final skewA = env.accessTokenSkewSeconds;
-    final skewR = env.refreshTokenSkewSeconds;
+  String? get _accessToken => _box.read<String>(Env.get().storageKeyAccessToken);
+  String? get _refreshToken => _box.read<String>(Env.get().storageKeyRefreshToken);
 
+  void _writeTokens({
+    required String accessToken,
+    required DateTime? accessExpiry,
+    String? refreshToken,
+    DateTime? refreshExpiry,
+  }) {
+    final env = Env.get();
+    _box.write(env.storageKeyAccessToken, accessToken);
+    if (accessExpiry != null) _box.write(env.storageKeyAccessExpiry, accessExpiry.toIso8601String());
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      _box.write(env.storageKeyRefreshToken, refreshToken);
+      if (refreshExpiry != null) {
+        _box.write(env.storageKeyRefreshExpiry, refreshExpiry.toIso8601String());
+      }
+    } else {
+      _box.remove(env.storageKeyRefreshToken);
+      _box.remove(env.storageKeyRefreshExpiry);
+    }
+  }
+
+  void _clearTokens() {
+    final env = Env.get();
+    _box.remove(env.storageKeyAccessToken);
+    _box.remove(env.storageKeyAccessExpiry);
+    _box.remove(env.storageKeyRefreshToken);
+    _box.remove(env.storageKeyRefreshExpiry);
+  }
+
+  Future<bool> _refreshKeycloak() async {
+    final env = Env.get();
+    final rt = _refreshToken;
+    if (rt == null || rt.isEmpty) return false;
+
+    final body = {
+      'grant_type': 'refresh_token',
+      'client_id': env.keycloakClientId,
+      'refresh_token': rt,
+    };
+    if ((env.keycloakClientSecret ?? '').isNotEmpty) {
+      body['client_secret'] = env.keycloakClientSecret!;
+    }
+
+    final res = await post(
+      env.tokenEndpoint,
+      FormData(body),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    );
+
+    if (!res.isOk) {
+      // Refresh failed; clear and force re-login
+      _clearTokens();
+      return false;
+    }
+
+    final data = _safeBodyMap(res.body);
+    final access = (data['access_token'] ?? '') as String;
+    final refresh = (data['refresh_token'] ?? '') as String?;
+    final expSec = _asInt(data['expires_in']) ?? 0;
+    final refreshExpSec = _asInt(data['refresh_expires_in']) ?? 0;
     final now = DateTime.now();
-    final atExp = now.add(Duration(seconds: (ei - skewA).clamp(5, ei)));
-    final rtExp = now.add(Duration(seconds: (rei - skewR).clamp(5, rei)));
 
-    if (at != null) _box.write(_kAT, at);
-    if (rt != null) _box.write(_kRT, rt);
-    _box.write(_kATExp, atExp.toIso8601String());
-    _box.write(_kRTExp, rtExp.toIso8601String());
+    final atExp = now.add(Duration(seconds: expSec > 5 ? expSec - 5 : expSec));
+    final rtExp = refresh != null && refreshExpSec > 0
+        ? now.add(Duration(seconds: refreshExpSec > 5 ? refreshExpSec - 5 : refreshExpSec))
+        : null;
+
+    _writeTokens(accessToken: access, accessExpiry: atExp, refreshToken: refresh, refreshExpiry: rtExp);
+    return true;
   }
 
-  String _encodeForm(Map<String, String> map) =>
-      map.entries
-          .map((e) => '\${Uri.encodeQueryComponent(e.key)}=\${Uri.encodeQueryComponent(e.value)}')
-          .join('&');
+  Map<String, dynamic> _safeBodyMap(dynamic body) {
+    if (body is Map<String, dynamic>) return body;
+    if (body is Map) return body.map((k, v) => MapEntry(k.toString(), v));
+    if (body is String && body.isNotEmpty) {
+      try {
+        final m = jsonDecode(body);
+        if (m is Map<String, dynamic>) return m;
+      } catch (_) {}
+    }
+    return <String, dynamic>{};
+  }
+
+  int? _asInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v);
+    return null;
+  }
 }
 `;
 }

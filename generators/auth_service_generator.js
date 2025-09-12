@@ -1,11 +1,10 @@
 // generators/auth_service_generator.js
 // Emits lib/core/auth/auth_service.dart
-// - Central auth state as a GetxService
-// - Wraps ApiClient for Keycloak password grant + refresh + logout
-// - Parses JWT (via token_decoder.dart) to expose username, displayName, authorities, expiries
-// - Reacts to token changes in GetStorage and updates observables
-// - Helpers: bootstrap(), loginWithPassword(), logout(), refreshNow(),
-//            rememberUsername()/forgetRememberedUsername(), hasAny/AllAuthority
+// - Dual auth aware (Keycloak OIDC or JHipster JWT via Env.authProvider)
+// - Central auth state with GetX observables
+// - Parses JWT claims for username/displayName/authorities
+// - (JWT) Optionally enriches from /api/account if claims lack authorities
+// - Exposes helpers: bootstrap, loginWithPassword, refreshNow, logout, hasAny/AllAuthority
 
 function generateAuthServiceTemplate() {
   return `import 'dart:async';
@@ -30,7 +29,7 @@ class AuthService extends GetxService {
 
   Timer? _ticker;
 
-  // Public getters (reactive via Obx)
+  // Public getters
   bool get isAuthenticated => _authenticated.value;
   String? get username => _username.value;
   String? get displayName => _displayName.value;
@@ -38,8 +37,6 @@ class AuthService extends GetxService {
 
   DateTime? get accessTokenExpiry => _accessExp.value;
   DateTime? get refreshTokenExpiry => _refreshExp.value;
-
-  String? get rememberedUsername => _box.read<String>(Env.get().storageKeyRememberedUsername);
 
   ApiClient get _api {
     if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
@@ -49,9 +46,9 @@ class AuthService extends GetxService {
   @override
   void onInit() {
     super.onInit();
-    _loadFromStorage(); // initial snapshot
-    _watchStorageKeys(); // react to future changes
-    _startTicker();      // keep expiries current
+    _loadFromStorage();
+    _watchStorageKeys();
+    _startTicker();
   }
 
   @override
@@ -63,41 +60,53 @@ class AuthService extends GetxService {
   // ===== Public API =====
 
   /// Attempt to restore session and refresh tokens if needed.
+  /// (Keycloak) refresh via RT; (JWT) validate token presence/expiry; optionally fetch /account.
   Future<bool> bootstrap() async {
     final ok = await _api.bootstrap();
     _loadFromStorage();
+
+    final env = Env.get();
+    if (ok && env.isJwt) {
+      // If authorities missing, try to enrich from /account.
+      if (_authorities.isEmpty) {
+        await _enrichFromAccount();
+      }
+    }
     return ok;
   }
 
-  /// Login with Keycloak password grant (Direct Access Grants must be enabled).
+  /// Login with username/password via ApiClient (provider-aware).
   Future<bool> loginWithPassword(String username, String password) async {
     final ok = await _api.loginWithPassword(username, password);
     _loadFromStorage();
+
+    final env = Env.get();
+    if (ok && env.isJwt) {
+      // In JWT mode, some backends omit authorities in token; enrich.
+      await _enrichFromAccount();
+    }
     return ok;
   }
 
-  /// Explicitly try to refresh access token if expired (no-op if still valid).
+  /// Try to refresh access token if provider supports it.
   Future<void> refreshNow() async {
-    await _api.ensureFreshToken();
-    _loadFromStorage();
+    final env = Env.get();
+    if (env.isKeycloak) {
+      await _api.ensureFreshToken();
+      _loadFromStorage();
+    } else {
+      // JWT: no refresh; caller should handle re-login when 401 happens.
+      _loadFromStorage();
+    }
   }
 
-  /// Logout from Keycloak (if refresh token present) and clear local tokens.
+  /// Logout and clear local tokens.
   Future<void> logout() async {
     await _api.logout();
     _loadFromStorage();
   }
 
-  /// Remember/forget username locally for convenience on the login form.
-  void rememberUsername(String username) {
-    _box.write(Env.get().storageKeyRememberedUsername, username);
-  }
-
-  void forgetRememberedUsername() {
-    _box.remove(Env.get().storageKeyRememberedUsername);
-  }
-
-  /// Role/authority helpers
+  /// Convenience role checks
   bool hasAnyAuthority(Iterable<String> req) {
     if (!isAuthenticated) return false;
     final have = authorities.map((e) => e.toUpperCase()).toSet();
@@ -113,36 +122,30 @@ class AuthService extends GetxService {
   // ===== Internals =====
 
   void _watchStorageKeys() {
-    // GetStorage exposes listenKey; update if tokens change externally (e.g., ApiClient refresh).
-    final kAT = Env.get().storageKeyAccessToken;
-    final kATExp = Env.get().storageKeyAccessExpiry;
-    final kRT = Env.get().storageKeyRefreshToken;
-    final kRTExp = Env.get().storageKeyRefreshExpiry;
-
+    final env = Env.get();
     try {
-      _box.listenKey(kAT, (value) => _loadFromStorage());
-      _box.listenKey(kATExp, (value) => _loadFromStorage());
-      _box.listenKey(kRT, (value) => _loadFromStorage());
-      _box.listenKey(kRTExp, (value) => _loadFromStorage());
+      _box.listenKey(env.storageKeyAccessToken, (_) => _loadFromStorage());
+      _box.listenKey(env.storageKeyAccessExpiry, (_) => _loadFromStorage());
+      _box.listenKey(env.storageKeyRefreshToken, (_) => _loadFromStorage());
+      _box.listenKey(env.storageKeyRefreshExpiry, (_) => _loadFromStorage());
     } catch (_) {
-      // Some environments may not support listenKey; that's okay—ticker keeps state fresh.
+      // Some runtimes may not support listenKey; ticker keeps us fresh.
     }
   }
 
   void _startTicker() {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 15), (_) {
-      // Periodically re-evaluate auth/expiries.
       _loadFromStorage();
     });
   }
 
   void _loadFromStorage() {
     final env = Env.get();
+
     final at = _box.read<String>(env.storageKeyAccessToken);
     final rt = _box.read<String>(env.storageKeyRefreshToken);
 
-    // Expiries (ISO strings written by ApiClient)
     final atExpStr = _box.read<String>(env.storageKeyAccessExpiry);
     final rtExpStr = _box.read<String>(env.storageKeyRefreshExpiry);
     final atExp = atExpStr != null ? DateTime.tryParse(atExpStr) : null;
@@ -164,14 +167,15 @@ class AuthService extends GetxService {
     _displayName.value = _extractDisplayName(claims, _username.value);
     _authorities.assignAll(_extractAuthorities(claims));
 
-    // Consider authenticated if we have an access token that isn't already expired.
-    _authenticated.value = !_isExpired(atExp);
+    // Authenticated if access token not expired (or expiry unknown but token present).
+    _authenticated.value = !_isExpired(atExp) && at.isNotEmpty;
   }
 
   String? _extractUsername(Map<String, dynamic> claims) {
-    // Keycloak commonly uses 'preferred_username'. Fallbacks: 'sub', 'email', 'upn'
+    // Keycloak prefers 'preferred_username'; JHipster often uses 'sub' or 'user_name' or 'login'
     return (claims['preferred_username'] ??
-            claims['upn'] ??
+            claims['user_name'] ??
+            claims['login'] ??
             claims['email'] ??
             claims['sub'])
         ?.toString();
@@ -183,7 +187,7 @@ class AuthService extends GetxService {
 
     final given = claims['given_name']?.toString();
     final family = claims['family_name']?.toString();
-    final combined = [given, family].where((e) => e != null && e.toString().isNotEmpty).join(' ').trim();
+    final combined = [given, family].whereType<String>().where((e) => e.isNotEmpty).join(' ').trim();
     if (combined.isNotEmpty) return combined;
 
     return fallback;
@@ -192,10 +196,16 @@ class AuthService extends GetxService {
   List<String> _extractAuthorities(Map<String, dynamic> claims) {
     final out = <String>{};
 
-    // Spring Security / JHipster often mints "authorities": ["ROLE_USER", ...]
+    // JHipster JWT: 'authorities' OR 'auth'
     final authorities = claims['authorities'];
     if (authorities is List) {
       for (final a in authorities) {
+        if (a is String && a.isNotEmpty) out.add(a);
+      }
+    }
+    final auth = claims['auth'];
+    if (auth is List) {
+      for (final a in auth) {
         if (a is String && a.isNotEmpty) out.add(a);
       }
     }
@@ -211,7 +221,6 @@ class AuthService extends GetxService {
     // Keycloak client roles
     final resource = claims['resource_access'];
     if (resource is Map) {
-      // If a specific clientId is configured, prefer that; otherwise add all client roles.
       final clientId = Env.get().keycloakClientId;
       if (resource[clientId] is Map && resource[clientId]['roles'] is List) {
         for (final r in (resource[clientId]['roles'] as List)) {
@@ -229,7 +238,7 @@ class AuthService extends GetxService {
       }
     }
 
-    // Normalize to upper-case unique list
+    // Normalize
     return out.map((e) => e.toUpperCase()).toList()..sort();
   }
 
@@ -238,7 +247,42 @@ class AuthService extends GetxService {
     return up.startsWith('ROLE_') ? up : 'ROLE_' + up;
   }
 
-  bool _isExpired(DateTime? exp) => exp == null || DateTime.now().isAfter(exp);
+  bool _isExpired(DateTime? exp) => exp == null ? false : DateTime.now().isAfter(exp);
+
+  /// For JWT apps, fetch /api/account to enrich authorities/name if not present in claims.
+  Future<void> _enrichFromAccount() async {
+    final env = Env.get();
+    if (!env.isJwt) return;
+    try {
+      final res = await _api.getJson(env.accountEndpoint);
+      if (!res.isOk) return;
+      final body = res.body;
+      if (body is Map) {
+        // JHipster default payload keys:
+        final login = body['login']?.toString();
+        final first = body['firstName']?.toString();
+        final last = body['lastName']?.toString();
+        final auths = body['authorities'];
+
+        if ((first ?? '').isNotEmpty || (last ?? '').isNotEmpty) {
+          final name = [first, last].whereType<String>().where((e) => e.isNotEmpty).join(' ').trim();
+          if (name.isNotEmpty) _displayName.value = name;
+        }
+        if ((login ?? '').isNotEmpty) {
+          _username.value = login;
+        }
+        if (auths is List) {
+          final set = <String>{};
+          for (final a in auths) {
+            if (a is String && a.isNotEmpty) set.add(a.toUpperCase());
+          }
+          if (set.isNotEmpty) _authorities.assignAll(set.toList()..sort());
+        }
+      }
+    } catch (_) {
+      // ignore enrichment errors
+    }
+  }
 }
 `;
 }

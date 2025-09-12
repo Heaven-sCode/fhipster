@@ -4,20 +4,44 @@
 // - Uses ResponsiveGrid for web/mobile friendly layout
 // - Binds to <Entity>Controller TextEditingControllers & Rx fields
 // - Handles primitives, enums, dates, numbers, booleans
-// - Handles relationships: 
+// - Handles relationships:
 //     * ManyToOne / OneToOne -> Dropdown of related options
 //     * OneToMany / ManyToMany -> Multi-select chips
 // - Validates required fields
 // - Calls controller.submitForm() on Save
 
-const { jdlToDartType, isBooleanType, isEnumType, isDateType, isNumericType } = require('../parser/type_mapping');
+const {
+  jdlToDartType,
+  isBooleanType,
+  isEnumType,
+  isDateType,
+  isNumericType,
+} = require('../parser/type_mapping');
+const { toFileName } = require('../utils/naming');
 
-function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
-
+function lcFirst(s) {
+  return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+}
+function cap(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
 function labelize(fieldName) {
   return String(fieldName)
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (c) => c.toUpperCase());
+}
+
+function wrapInGridCol(widgetExpr) {
+  return `
+                ResponsiveGridCol(
+                  lg: 4,
+                  md: 6,
+                  xs: 12,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: ${widgetExpr.trim()},
+                  ),
+                )`;
 }
 
 function generateFormTemplate(entityName, fields, parsedEnums = {}) {
@@ -25,22 +49,30 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
   const controllerClass = `${entityName}Controller`;
   const instance = lcFirst(entityName);
 
+  const thisFileBase = toFileName(entityName); // e.g., UserProfile -> user_profile
+
   // Collect enum imports used in primitive fields
   const enumTypesUsed = Array.from(
     new Set(fields.filter(f => !f.isRelationship && parsedEnums?.[f.type]).map(f => f.type))
   );
-  const enumImports = enumTypesUsed.map(e => `import '../enums/${lcFirst(e)}_enum.dart';`).join('\n');
+  const enumImports = enumTypesUsed
+    .map(e => `import '../enums/${toFileName(e)}_enum.dart';`)
+    .join('\n');
 
   // Collect relationship model imports (for type args)
   const relTargets = Array.from(new Set(fields.filter(f => f.isRelationship).map(f => f.targetEntity)));
-  const relModelImports = relTargets.map(t => `import '../models/${lcFirst(t)}_model.dart';`).join('\n');
+  const relModelImports = relTargets
+    .map(t => `import '../models/${toFileName(t)}_model.dart';`)
+    .join('\n');
 
   // Prepare widget builders for each field (skip 'id')
   const formFields = fields.filter(f => f.name !== 'id');
 
-  const fieldWidgets = formFields.map(f => {
+  const gridCols = formFields.map(f => {
     const n = f.name;
     const label = labelize(n);
+
+    // Category selection
     const cat =
       f.isRelationship ? 'rel'
       : isEnumType(f.type, parsedEnums) ? 'enum'
@@ -49,19 +81,22 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
       : isNumericType(f.type, parsedEnums) ? 'number'
       : (jdlToDartType(f.type, parsedEnums) === 'Map<String, dynamic>' ? 'json' : 'string');
 
+    let widgetExpr = '';
+
     if (cat === 'bool') {
-      return `
+      widgetExpr = `
             Obx(() => CheckboxListTile(
               title: Text('${label}'.tr),
               value: controller.${n}.value,
               onChanged: (v) => controller.${n}.value = v ?? false,
               controlAffinity: ListTileControlAffinity.leading,
             ))`;
+      return wrapInGridCol(widgetExpr);
     }
 
     if (cat === 'enum') {
       // Use EnumType.values as the items source
-      return `
+      widgetExpr = `
             Obx(() => DropdownButtonFormField<${f.type}>(
               value: controller.${n}.value,
               items: ${f.type}.values.map((e) => DropdownMenuItem<${f.type}>(
@@ -70,13 +105,13 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
               )).toList(),
               onChanged: (v) => controller.${n}.value = v,
               decoration: InputDecoration(labelText: '${label}'.tr),
-              validator: ${(f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`)},
+              validator: ${f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`},
             ))`;
+      return wrapInGridCol(widgetExpr);
     }
 
     if (cat === 'date') {
-      // Keep simple ISO input; consumers can paste or type; optional: show picker onTap (readOnly)
-      return `
+      widgetExpr = `
             FHipsterInputField(
               controller: controller.${n}Ctrl,
               label: '${label}'.tr,
@@ -90,10 +125,12 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
                 return null;
               },
             )`;
+      return wrapInGridCol(widgetExpr);
     }
 
     if (cat === 'number') {
-      return `
+      const isInt = jdlToDartType(f.type, parsedEnums) === 'int';
+      widgetExpr = `
             FHipsterInputField(
               controller: controller.${n}Ctrl,
               label: '${label}'.tr,
@@ -102,17 +139,18 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
               validator: (v) {
                 ${f.required ? `if (v == null || v.isEmpty) return 'Please enter ${label.toLowerCase()}'.tr;` : ''}
                 if (v != null && v.isNotEmpty) {
-                  if (${jdlToDartType(f.type, parsedEnums) === 'int' ? 'int.tryParse(v) == null' : 'double.tryParse(v) == null'}) {
+                  if (${isInt ? 'int.tryParse(v) == null' : 'double.tryParse(v) == null'}) {
                     return 'Please enter a valid number'.tr;
                   }
                 }
                 return null;
               },
             )`;
+      return wrapInGridCol(widgetExpr);
     }
 
     if (cat === 'json') {
-      return `
+      widgetExpr = `
             FHipsterInputField(
               controller: controller.${n}Ctrl,
               label: '${label}'.tr,
@@ -126,14 +164,16 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
                 return null;
               },
             )`;
+      return wrapInGridCol(widgetExpr);
     }
 
     if (cat === 'rel') {
       const kind = (f.relationshipType || '').toLowerCase();
       const tModel = `${f.targetEntity}Model`;
+
       if (kind === 'manytoone' || kind === 'onetoone') {
         // Single relation: dropdown fed from <name>Options
-        return `
+        widgetExpr = `
             Obx(() {
               final loading = controller.${n}Loading.value;
               final options = controller.${n}Options;
@@ -155,21 +195,24 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
                     onPressed: () => controller.load${cap(n)}Options(),
                   ),
                 ),
-                validator: ${(f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`)},
+                validator: ${f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`},
               );
             })`;
+        return wrapInGridCol(widgetExpr);
       } else {
         // Multi relation: FilterChips with options
-        return `
+        widgetExpr = `
             Obx(() {
               final loading = controller.${n}Loading.value;
               final options = controller.${n}Options;
               final selected = controller.${n};
               if (loading) {
-                return const Center(child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ));
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
               }
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,7 +241,10 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
                   ),
                   ${f.required ? `if (selected.isEmpty) Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text('Please select at least one ${label.toLowerCase()}'.tr, style: TextStyle(color: Theme.of(Get.context!).colorScheme.error, fontSize: 12)),
+                    child: Text(
+                      'Please select at least one ${label.toLowerCase()}'.tr,
+                      style: TextStyle(color: Theme.of(Get.context!).colorScheme.error, fontSize: 12),
+                    ),
                   ),` : ''}
                   Align(
                     alignment: Alignment.centerLeft,
@@ -211,17 +257,19 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
                 ],
               );
             })`;
+        return wrapInGridCol(widgetExpr);
       }
     }
 
     // default string
-    return `
+    widgetExpr = `
             FHipsterInputField(
               controller: controller.${n}Ctrl,
               label: '${label}'.tr,
               hint: 'Enter ${label}'.tr,
-              validator: ${(f.required ? `(v) => (v == null || v.isEmpty) ? 'Please enter ${label.toLowerCase()}'.tr : null` : `null`)},
+              validator: ${f.required ? `(v) => (v == null || v.isEmpty) ? 'Please enter ${label.toLowerCase()}'.tr : null` : `null`},
             )`;
+    return wrapInGridCol(widgetExpr);
   }).join(',\n');
 
   return `import 'dart:convert';
@@ -229,8 +277,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:responsive_grid/responsive_grid.dart';
 import '../widgets/fhipster_input_field.dart';
-import '../controllers/${lcFirst(entityName)}_controller.dart';
-import '../models/${lcFirst(entityName)}_model.dart';
+import '../controllers/${thisFileBase}_controller.dart';
+import '../models/${thisFileBase}_model.dart';
 ${enumImports ? enumImports + '\n' : ''}${relModelImports ? relModelImports + '\n' : ''}
 
 /// ${entityName} form widget. Stateless GetView bound to ${controllerClass}.
@@ -250,7 +298,7 @@ class ${className} extends GetView<${controllerClass}> {
           children: [
             ResponsiveGridRow(
               children: [
-                ${formFieldsToCols(fieldWidgets)}
+${gridCols}
               ],
             ),
             const SizedBox(height: 20),
@@ -279,38 +327,7 @@ class ${className} extends GetView<${controllerClass}> {
     );
   }
 }
-
-// Helper to wrap fields in ResponsiveGridCol
-// Large: 4 columns (3 per row), Medium: 6 (2 per row), Small: 12 (full width)
-List<ResponsiveGridCol> ${instance}FormCols(BuildContext context) {
-  // not used directly; columns inlined by generator
-  return <ResponsiveGridCol>[];
-}
 `;
 }
-
-// Wrap each field widget into a ResponsiveGridCol cell
-function formFieldsToCols(widgetsJoined) {
-  // widgetsJoined is a big string of widget expressions separated by commas
-  // We need to wrap each in a ResponsiveGridCol(...) cell.
-  // Since we already produced each expression, we can split by '),\n' etc, but safer to wrap inline.
-  // We'll map over prebuilt list at generation time instead; here we just inject the wrapped items.
-  const wrap = (w) => `
-                ResponsiveGridCol(
-                  lg: 4,
-                  md: 6,
-                  xs: 12,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: ${w.trim()},
-                  ),
-                )`;
-  // Split top-level by '],\n' is brittle; instead assume `widgetsJoined` already is a CSV and we can wrap via simple replace.
-  // We'll reconstruct by splitting on '),\n' boundaries cautiously:
-  const items = widgetsJoined.split(/,\n/).map(s => s.trim()).filter(Boolean);
-  return items.map(wrap).join(',\n                ');
-}
-
-function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
 module.exports = { generateFormTemplate };

@@ -1,29 +1,39 @@
 // generators/login_controller_generator.js
-// Emits lib/controllers/login_controller.dart
-// - GetX controller for the login screen
-// - Uses AuthService (which wraps ApiClient with Keycloak token/refresh flow)
-// - Simple "username/password" Direct Access Grant (password grant) against Keycloak
-// - Exposes busy/error state and TextEditingControllers
-// - Navigates to AppRoutes.home on success
+// Emits: lib/controllers/login_controller.dart
+// - Provider-agnostic login (Keycloak or JHipster JWT via AuthService)
+// - Remember-username support using AuthService storage keys
+// - Clean GetX patterns, no UI logic here
 
 function generateLoginControllerTemplate() {
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
 import '../core/auth/auth_service.dart';
 import '../core/routes.dart';
 
 class LoginController extends GetxController {
-  final TextEditingController usernameCtrl = TextEditingController();
-  final TextEditingController passwordCtrl = TextEditingController();
+  final usernameCtrl = TextEditingController();
+  final passwordCtrl = TextEditingController();
 
+  final RxBool rememberMe = true.obs;
   final RxBool isBusy = false.obs;
   final RxnString errorText = RxnString();
-  final RxBool rememberMe = false.obs;
-  final RxBool obscure = true.obs;
 
   AuthService get _auth {
-    if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
+    if (!Get.isRegistered<AuthService>()) {
+      Get.put(AuthService(), permanent: true);
+    }
     return Get.find<AuthService>();
+  }
+
+  @override
+  void onInit() {
+    super.onInit();
+    // Pre-fill remembered username if available
+    final remembered = _auth.rememberedUsername;
+    if (remembered != null && remembered.isNotEmpty) {
+      usernameCtrl.text = remembered;
+    }
   }
 
   @override
@@ -33,46 +43,36 @@ class LoginController extends GetxController {
     super.onClose();
   }
 
-  Future<void> submit() async {
+  Future<void> login() async {
     final username = usernameCtrl.text.trim();
-    final password = passwordCtrl.text; // allow spaces in password
+    final password = passwordCtrl.text;
+
+    errorText.value = null;
 
     if (username.isEmpty || password.isEmpty) {
-      errorText.value = 'Username and password are required'.tr;
-      _toast(errorText.value!);
+      errorText.value = 'Please enter username and password'.tr;
       return;
     }
 
     isBusy.value = true;
-    errorText.value = null;
-
     try {
       final ok = await _auth.loginWithPassword(username, password);
-      if (ok) {
-        // You can persist the last username if rememberMe is true (AuthService may also handle it)
+      if (ok && _auth.isAuthenticated) {
+        // Store or clear remembered username
         if (rememberMe.value) {
           _auth.rememberUsername(username);
         } else {
           _auth.forgetRememberedUsername();
         }
+        // Navigate to home
         Get.offAllNamed(AppRoutes.home);
-        return;
+      } else {
+        errorText.value = 'Invalid credentials or session error'.tr;
       }
-      errorText.value = 'Invalid credentials'.tr;
-      _toast(errorText.value!);
     } catch (e) {
       errorText.value = e.toString();
-      _toast(errorText.value!);
     } finally {
       isBusy.value = false;
-    }
-  }
-
-  void toggleObscure() => obscure.value = !obscure.value;
-
-  void _toast(String msg) {
-    if (!Get.isSnackbarOpen) {
-      Get.snackbar('Login', msg, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 3));
     }
   }
 }

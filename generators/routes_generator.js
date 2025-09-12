@@ -1,18 +1,18 @@
 // generators/routes_generator.js
 // Emits lib/core/routes.dart
 // - Centralizes GetX routes and bindings
-// - Registers ApiClient + AuthService once per page via BindingsBuilder
+// - Registers ApiClient + AuthService once per page via _ensureCore()
 // - Attaches AuthMiddleware (and RoleMiddleware when roles provided)
 // - Wires splash/login/home + entity table views
 //
-// Usage in index.js:
+// Usage in bin/index.js:
 //   writeFile(path.join(coreDir, 'routes.dart'), generateRoutesTemplate({
 //     entityRoutes,                   // [{ path, controllerFile, viewFile, controllerClass, viewClass, roles: [] }]
 //     includeAuthGuards: true,
 //   }), force, 'core/routes.dart');
 
 function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true } = {}) {
-  // Build dynamic imports for entities
+  // Dynamic imports for entities
   const entityViewImports = entityRoutes
     .map(r => `import '../views/${r.viewFile}';`)
     .join('\n');
@@ -115,6 +115,7 @@ ${entityPages}
 }
 
 /// Ensure core singletons are registered once.
+/// Works for both Keycloak and JHipster JWT since they plug through AuthService/ApiClient.
 void _ensureCore() {
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
