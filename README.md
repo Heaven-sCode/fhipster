@@ -7,7 +7,7 @@
 **FHipster** turns your JHipster Domain Language (JDL) into a production-ready **Flutter `lib/`** with:
 
 - ✅ GetX-first architecture (stateless views, controller-owned state)
-- ✅ Keycloak auth (token + refresh) via a central `ApiClient` and `AuthService`
+- ✅ **Dual auth**: Keycloak OIDC *or* JHipster JWT (select via flag)
 - ✅ Clean App Shell for web & mobile (NavigationRail/Drawer)
 - ✅ Models, Services, Controllers, Forms, Table views
 - ✅ JPA criteria filtering + Elasticsearch search
@@ -21,8 +21,8 @@
 ## ✨ What gets generated
 
 - **Core**
-  - `core/env/env.dart` — self-contained environment with `Env.init(...)`
-  - `core/api_client.dart` — GetConnect + Keycloak token/refresh, headers, retries
+  - `core/env/env.dart` — self-contained environment (`Env.initGenerated()` or `Env.init(...)`)
+  - `core/api_client.dart` — GetConnect; **Keycloak token/refresh** or **JWT bearer**
   - `core/auth/*` — `AuthService`, `AuthMiddleware`, `RoleMiddleware`, `token_decoder.dart`
   - `core/app_shell.dart` — responsive shell (web & mobile)
   - `core/routes.dart` — GetX routes (Splash, Login, Home, 401, 403, + per-entity)
@@ -54,7 +54,6 @@
 ```bash
 npm install -g fhipster
 ```
-
 > Requires Node 16+.
 
 ---
@@ -65,12 +64,19 @@ npm install -g fhipster
 fhipster <jdl-file> --microservice <name> [--apiHost <host>] [outputDir]
 ```
 
-**Flags**
+**Core flags**
 
 - `-m, --microservice` **(required)**: service name (e.g. `dms`)
-- `-a, --apiHost` *(optional)*: base API host (default: `https://api.yourapp.com`)
-- `outputDir` *(optional positional)*: output folder (default: `flutter_generated`).  
-  Use `./lib` to generate directly into your app.
+- `-a, --apiHost` *(optional)*: base API host (default: `http://localhost:8080`)
+- `outputDir` *(optional positional)*: output folder (default: `flutter_generated`). Use `./lib` to generate directly into your app.
+- `--useGateway` *(optional)*: use JHipster API Gateway paths (`/services/<name>/api/**`)
+- `--gatewayServiceName` *(optional)*: default gateway service when `--useGateway`
+
+**Auth flags (dual auth)**
+
+- `-p, --authProvider` : `keycloak` **(default)** | `jhipsterJwt`
+- `--jwtAuthEndpoint` : JWT login endpoint (default: `/api/authenticate`)
+- `--accountEndpoint` : JWT account/identity endpoint (default: `/api/account`)
 
 **Examples**
 
@@ -81,9 +87,15 @@ fhipster ./application.jdl -m blog -a http://localhost:8080
 # Generate directly into your Flutter app's lib/
 cd my_flutter_app
 fhipster ../specs/app.jdl -m dms -a https://api.example.com ./lib
+
+# Generate for JHipster JWT backend
+fhipster ./app.jdl -m store -a https://api.myapp.com   --authProvider jhipsterJwt   --jwtAuthEndpoint /api/authenticate   --accountEndpoint /api/account   ./lib
+
+# Generate for Keycloak + Gateway
+fhipster ./app.jdl -m billing -a https://gateway.example.com   --useGateway --gatewayServiceName billing ./lib
 ```
 
-Run `fhipster --help` for details.
+Run `fhipster --help` for all options.
 
 ---
 
@@ -157,7 +169,6 @@ flutter pub add get get_storage responsive_grid
 ```
 
 **Optional (handy):**
-
 ```yaml
 dev_dependencies:
   flutter_test:
@@ -219,18 +230,33 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
 
-  Env.init(EnvConfig(
-    appName: 'My App',
-    envName: 'dev',
-    apiHost: 'http://localhost:8080',
-    tokenEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/token',
-    logoutEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/logout',
-    authorizeEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/auth',
-    userinfoEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/userinfo',
-    keycloakClientId: 'my-client',
-    keycloakClientSecret: '',
-    keycloakScopes: ['openid', 'profile', 'email', 'offline_access'],
-  ));
+  // EITHER: Use the generated defaults from env.dart
+  Env.initGenerated();
+
+  // OR: Provide your own values explicitly (Keycloak example)
+  // Env.init(EnvConfig(
+  //   appName: 'My App',
+  //   envName: 'dev',
+  //   apiHost: 'http://localhost:8080',
+  //   authProvider: AuthProvider.keycloak,
+  //   tokenEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/token',
+  //   logoutEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/logout',
+  //   authorizeEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/auth',
+  //   userinfoEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/userinfo',
+  //   keycloakClientId: 'my-client',
+  //   keycloakClientSecret: '',
+  //   keycloakScopes: ['openid', 'profile', 'email', 'offline_access'],
+  // ));
+
+  // OR: JHipster JWT example
+  // Env.init(EnvConfig(
+  //   appName: 'My App',
+  //   envName: 'dev',
+  //   apiHost: 'https://api.example.com',
+  //   authProvider: AuthProvider.jhipsterJwt,
+  //   jwtAuthEndpoint: '/api/authenticate',
+  //   accountEndpoint: '/api/account',
+  // ));
 
   Get.put(ApiClient(), permanent: true);
   Get.put(AuthService(), permanent: true);
@@ -243,15 +269,13 @@ void main() async {
 }
 ```
 
-> The environment file is independent and self-sufficient — initialize it via `Env.init(...)`.  
-> Services read base paths and headers from `Env.get()`.
+> The environment file is independent and self-sufficient — initialize it via `Env.initGenerated()` or override with `Env.init(EnvConfig(...))`. Services read base paths/headers from `Env.get()`.
 
 ---
 
 ## 🔎 Filtering & Search (what the services support)
 
 - **Criteria (JPA meta filtering)** via query params:
-
 ```dart
 final result = await orderService.listPaged(
   page: 0,
@@ -267,7 +291,6 @@ final result = await orderService.listPaged(
 ```
 
 - **Elasticsearch search** (if backend exposes `/_search/<entities>`):
-
 ```dart
 final search = await orderService.search(
   query: 'customer:john*',
@@ -277,7 +300,6 @@ final search = await orderService.search(
 ```
 
 - **PATCH** uses `application/merge-patch+json`:
-
 ```dart
 await orderService.patch(id, {'status': 'PAID'});
 ```
@@ -299,12 +321,11 @@ The generated table views use Flutter's built-in **`DataTable`** (from `material
 
 ## 🔐 Auth flow
 
-- **Keycloak** Password Grant (`offline_access` supported)
-- Automatic **token refresh** on 401 / before requests
-- **Auth guard** and **role guard** middlewares
-- `AuthService` exposes `username`, `displayName`, `authorities`, and token expiries
+- **Keycloak**: Password Grant (`offline_access` supported), automatic **token refresh**
+- **JHipster JWT**: Simple bearer token from `/api/authenticate` (no refresh); optional `/api/account` enrichment
+- Auth & role middlewares guard routes; `AuthService` exposes `username`, `displayName`, `authorities`, and token expiries
 
-> Ensure your Keycloak client enables **Direct Access Grants** if you use the password flow.
+> For Keycloak: enable **Direct Access Grants** on the client if you use the password flow.
 
 ---
 
