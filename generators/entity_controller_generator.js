@@ -10,6 +10,12 @@
 //
 // Usage:
 //   writeFile(..., generateEntityControllerTemplate('Order', fields, enums), ...)
+function cap(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+function lcFirst(s) {
+  return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+}
 
 const { jdlToDartType, isBooleanType, isEnumType, isDateType, isNumericType } = require('../parser/type_mapping');
 

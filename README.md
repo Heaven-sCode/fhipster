@@ -328,6 +328,16 @@ The generated table views use Flutter's built-in **`DataTable`** (from `material
 > For Keycloak: enable **Direct Access Grants** on the client if you use the password flow.
 
 ---
+# Auto-detects fhipster.config.yaml in CWD
+`fhipster`
+
+# Or explicitly:
+`fhipster --config ./fhipster.config.yaml`
+
+# CLI flags still override YAML:
+`fhipster --config ./fhipster.config.yaml -a https://gateway.example.com`
+
+---
 
 ## 🤝 Contributing
 

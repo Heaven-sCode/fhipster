@@ -1,0 +1,26 @@
+entity Properties{
+    title String
+area Double
+value String
+facilities String
+}
+
+entity MediaAssets{
+    image String
+    title String
+
+}
+
+/**
+ * One to many relationship.
+ */
+relationship OneToMany {
+    Properties to MediaAssets
+}
+
+
+service * with serviceClass
+paginate * with pagination
+search * with elasticsearch
+filter *
+

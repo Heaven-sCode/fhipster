@@ -4,6 +4,9 @@
  * FHipster CLI
  * JDL → Flutter GetX lib/ generator
  *
+ * - YAML config support (CLI overrides YAML)
+ * - Defaults output to ./lib
+ * - Optional lib/main.dart via --emitMain or YAML emitMain: true
  * - Dual auth (Keycloak OIDC or JHipster JWT) baked into env.dart
  * - Gateway-aware URLs (JHipster API Gateway)
  * - Models, Services, Controllers, Forms, Table views
@@ -12,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 const yargs = require('yargs/yargs');
 const { hideBin } = require('yargs/helpers');
 
@@ -43,83 +47,167 @@ const { generateHomeViewTemplate } = require('../generators/home_view_generator'
 const { generateUnauthorizedViewTemplate } = require('../generators/unauthorized_view_generator');
 const { generateForbiddenViewTemplate } = require('../generators/forbidden_view_generator');
 
+const { generateMainDartTemplate } = require('../generators/main_dart_generator'); // optional main.dart
+
 // ---- Parser / Utils ----
-const { parseJdl } = require('../parser');                 // ../parser/index.js
+const { parseJdl } = require('../parser');
 const { toFileName, toClassName, toInstanceName, toPlural } = require('../utils/naming');
 const { writeFile } = require('../utils/file_writer');
 
-// ------------------------------------------------------------
+// ----------------------------------------------------------------
 
 function main() {
   const argv = yargs(hideBin(process.argv))
-    .usage('Usage: $0 <jdlFile> --microservice <name> [--apiHost <host>] [outputDir]')
-    .demandCommand(1, 'You must provide the path to the JDL file.')
+    .usage('Usage: $0 [jdlFile] --microservice <name> [options]')
+    .epilog('FHipster — JDL → Flutter (GetX) generator')
+    .option('config', {
+      alias: 'c',
+      type: 'string',
+      describe: 'Path to YAML config (CLI flags override YAML). If omitted, auto-detects fhipster.config.yaml|yml in CWD.',
+    })
     .option('microservice', {
       alias: 'm',
-      description: 'The name of the microservice (e.g., dms).',
       type: 'string',
-      demandOption: true,
+      describe: 'Microservice short name (e.g., dms)',
     })
     .option('apiHost', {
       alias: 'a',
-      description: 'Base host for the API (e.g., https://api.example.com).',
       type: 'string',
-      default: 'http://localhost:8080',
+      describe: 'Base API host (e.g., http://localhost:8080)',
     })
     .option('useGateway', {
+      alias: 'g',
       type: 'boolean',
-      default: false,
-      describe: 'Use JHipster API Gateway style URLs: /services/<name>/api/**',
+      describe: 'Use JHipster gateway paths (/services/<svc>/api/...)',
     })
     .option('gatewayServiceName', {
+      alias: 's',
       type: 'string',
-      describe: 'Default gateway service name (required when --useGateway if not overridden per-service).',
+      describe: 'Gateway service name when --useGateway is true (e.g., dms)',
     })
+    .option('outputDir', {
+      alias: 'o',
+      type: 'string',
+      describe: 'Output directory (defaults to ./lib)',
+    })
+    .option('pluralOverridesJson', {
+      type: 'string',
+      default: '{}',
+      describe: 'JSON map of entity plural overrides, e.g. {"Person":"people","Address":"addresses"}',
+    })
+    // Auth (dual)
     .option('authProvider', {
       alias: 'p',
       choices: ['keycloak', 'jhipsterJwt'],
-      default: 'keycloak',
       describe: 'Auth provider baked into env.dart',
     })
-    .option('jwtAuthEndpoint', {
-      type: 'string',
-      default: '/api/authenticate',
-      describe: 'JWT auth endpoint (JHipster JWT mode)',
-    })
-    .option('accountEndpoint', {
-      type: 'string',
-      default: '/api/account',
-      describe: 'Account/identity endpoint (JHipster JWT mode)',
-    })
-    .option('includeAuthGuards', {
-      type: 'boolean',
-      default: true,
-      describe: 'Attach AuthMiddleware/RoleMiddleware to secured routes',
-    })
-    .option('force', {
-      alias: 'f',
-      type: 'boolean',
-      default: false,
-      describe: 'Overwrite existing files without prompting',
-    })
+    .option('jwtAuthEndpoint', { type: 'string', describe: 'JWT auth endpoint (e.g., /api/authenticate)' })
+    .option('accountEndpoint', { type: 'string', describe: 'JWT account endpoint (e.g., /api/account)' })
+    .option('allowCredentialCacheForJwt', { type: 'boolean', describe: 'Cache username/password for JWT (not recommended)' })
+    // Keycloak extras (optional CLI)
+    .option('keycloakTokenEndpoint', { type: 'string' })
+    .option('keycloakLogoutEndpoint', { type: 'string' })
+    .option('keycloakAuthorizeEndpoint', { type: 'string' })
+    .option('keycloakUserinfoEndpoint', { type: 'string' })
+    .option('keycloakClientId', { type: 'string' })
+    .option('keycloakClientSecret', { type: 'string' })
+    .option('keycloakScopes', { type: 'string', describe: 'Comma-separated scopes (e.g., openid,profile,email,offline_access)' })
+    // Environment defaults
+    .option('appName', { type: 'string' })
+    .option('envName', { type: 'string' })
+    .option('defaultPageSize', { type: 'number' })
+    .option('pageSizeOptions', { type: 'string', describe: 'Comma-separated ints (e.g., 10,20,50,100)' })
+    .option('defaultSort', { type: 'string', describe: 'Comma-separated sort (e.g., id,desc)' })
+    .option('defaultSearchSort', { type: 'string', describe: 'Comma-separated search sort (e.g., _score,desc)' })
+    .option('distinctByDefault', { type: 'boolean' })
+    .option('totalCountHeaderName', { type: 'string' })
+    .option('storageKeyAccessToken', { type: 'string' })
+    .option('storageKeyAccessExpiry', { type: 'string' })
+    .option('storageKeyRefreshToken', { type: 'string' })
+    .option('storageKeyRefreshExpiry', { type: 'string' })
+    .option('storageKeyRememberedUsername', { type: 'string' })
+    .option('relationshipPayloadMode', { type: 'string', choices: ['idOnly', 'fullObject'] })
+    // Guards & main.dart
+    .option('includeAuthGuards', { type: 'boolean', describe: 'Attach AuthMiddleware/RoleMiddleware to routes' })
+    .option('emitMain', { type: 'boolean', describe: 'Also generate lib/main.dart' })
+    .option('force', { alias: 'f', type: 'boolean', default: false, describe: 'Overwrite existing files' })
+    // IMPORTANT: do NOT .demandCommand(1) — we allow YAML-only usage
     .help('h')
     .alias('h', 'help')
     .version()
     .alias('v', 'version')
     .argv;
 
-  const jdlFilePath = path.resolve(process.cwd(), argv._[0]);
-  const outputDir = path.resolve(process.cwd(), argv._[1] || 'flutter_generated');
+  // 1) Load YAML (explicit path or autodetect)
+  const yamlConfig = loadYamlConfig(argv.config);
 
-  const microserviceName = argv.microservice;
-  const apiHost = argv.apiHost;
-  const useGateway = !!argv.useGateway;
-  const gatewayServiceName = argv.gatewayServiceName || null;
-  const authProvider = argv.authProvider;
-  const jwtAuthEndpoint = argv.jwtAuthEndpoint;
-  const accountEndpoint = argv.accountEndpoint;
-  const includeAuthGuards = !!argv.includeAuthGuards;
+  // 2) Resolve inputs (CLI > YAML > defaults)
+  const jdlFilePath = resolveJdlPath(argv._[0] || yamlConfig.jdlFile);
+  const outputDir = path.resolve(
+    process.cwd(),
+    pick(argv.outputDir, yamlConfig.outputDir, 'lib') // <-- default to ./lib
+  );
+
+  const microserviceName = pick(argv.microservice, yamlConfig.microservice, null);
+  if (!microserviceName) {
+    console.error('❌ Missing required option: --microservice (or set microservice in YAML)');
+    process.exit(1);
+  }
+
+  const apiHost = pick(argv.apiHost, yamlConfig.apiHost, 'http://localhost:8080');
+  const useGateway = pickBool(argv.useGateway, yamlConfig.useGateway, false);
+  const gatewayServiceName = pick(argv.gatewayServiceName, yamlConfig.gatewayServiceName, null);
+
+  const includeAuthGuards = pickBool(argv.includeAuthGuards, yamlConfig.includeAuthGuards, true);
+  const emitMain = pickBool(argv.emitMain, yamlConfig.emitMain, false);
   const force = !!argv.force;
+
+  // Auth (dual)
+  const authProvider = pick(argv.authProvider, yamlConfig?.auth?.provider, 'keycloak');
+
+  // JWT
+  const jwtAuthEndpoint = pick(argv.jwtAuthEndpoint, yamlConfig?.auth?.jwtAuthEndpoint, '/api/authenticate');
+  const accountEndpoint = pick(argv.accountEndpoint, yamlConfig?.auth?.accountEndpoint, '/api/account');
+  const allowCredentialCacheForJwt = pickBool(
+    argv.allowCredentialCacheForJwt,
+    yamlConfig?.auth?.allowCredentialCacheForJwt,
+    false
+  );
+
+  // Keycloak (optional)
+  const keycloakTokenEndpoint = pick(argv.keycloakTokenEndpoint, yamlConfig?.auth?.keycloak?.tokenEndpoint, undefined);
+  const keycloakLogoutEndpoint = pick(argv.keycloakLogoutEndpoint, yamlConfig?.auth?.keycloak?.logoutEndpoint, undefined);
+  const keycloakAuthorizeEndpoint = pick(argv.keycloakAuthorizeEndpoint, yamlConfig?.auth?.keycloak?.authorizeEndpoint, undefined);
+  const keycloakUserinfoEndpoint = pick(argv.keycloakUserinfoEndpoint, yamlConfig?.auth?.keycloak?.userinfoEndpoint, undefined);
+  const keycloakClientId = pick(argv.keycloakClientId, yamlConfig?.auth?.keycloak?.clientId, undefined);
+  const keycloakClientSecret = pick(argv.keycloakClientSecret, yamlConfig?.auth?.keycloak?.clientSecret, undefined);
+  const keycloakScopes = resolveList(argv.keycloakScopes, yamlConfig?.auth?.keycloak?.scopes, []);
+
+  // General env
+  const appName = pick(argv.appName, yamlConfig.appName, 'FHipster');
+  const envName = pick(argv.envName, yamlConfig.envName, 'dev');
+  const defaultPageSize = pickNum(argv.defaultPageSize, yamlConfig.defaultPageSize, 20);
+  const pageSizeOptions = resolveIntList(argv.pageSizeOptions, yamlConfig.pageSizeOptions, [10, 20, 50, 100]);
+  const defaultSort = resolveList(argv.defaultSort, yamlConfig.defaultSort, ['id,desc']);
+  const defaultSearchSort = resolveList(argv.defaultSearchSort, yamlConfig.defaultSearchSort, ['_score,desc']);
+  const distinctByDefault = pickBool(argv.distinctByDefault, yamlConfig.distinctByDefault, false);
+  const totalCountHeaderName = pick(argv.totalCountHeaderName, yamlConfig.totalCountHeaderName, 'X-Total-Count');
+  const storageKeyAccessToken = pick(argv.storageKeyAccessToken, yamlConfig.storageKeyAccessToken, 'fh_access_token');
+  const storageKeyAccessExpiry = pick(argv.storageKeyAccessExpiry, yamlConfig.storageKeyAccessExpiry, 'fh_access_expiry');
+  const storageKeyRefreshToken = pick(argv.storageKeyRefreshToken, yamlConfig.storageKeyRefreshToken, 'fh_refresh_token');
+  const storageKeyRefreshExpiry = pick(argv.storageKeyRefreshExpiry, yamlConfig.storageKeyRefreshExpiry, 'fh_refresh_expiry');
+  const storageKeyRememberedUsername = pick(argv.storageKeyRememberedUsername, yamlConfig.storageKeyRememberedUsername, 'fh_remembered_username');
+  const relationshipPayloadMode = pick(argv.relationshipPayloadMode, yamlConfig.relationshipPayloadMode, 'idOnly');
+
+  // Plural overrides (merge YAML + CLI JSON)
+  const pluralOverridesYaml = yamlConfig.pluralOverrides || {};
+  let pluralOverridesCli = {};
+  try {
+    pluralOverridesCli = JSON.parse(argv.pluralOverridesJson || '{}');
+  } catch {
+    console.warn('⚠️  Could not parse --pluralOverridesJson; using {}');
+  }
+  const pluralOverrides = { ...pluralOverridesYaml, ...pluralOverridesCli };
 
   if (!fs.existsSync(jdlFilePath)) {
     console.error(`❌ JDL file not found at '${jdlFilePath}'`);
@@ -128,28 +216,65 @@ function main() {
 
   // Parse JDL
   const jdlContent = fs.readFileSync(jdlFilePath, 'utf8');
-  const { entities, enums, pluralOverrides = {} } = parseJdl(jdlContent);
+  const { entities, enums, pluralOverrides: fromJdlPlural = {} } = parseJdl(jdlContent);
+  const pluralMap = { ...fromJdlPlural, ...pluralOverrides };
 
-  // Directories (under lib/)
+  // Directories
   const dirs = resolveDirs(outputDir);
   ensureDirs(dirs);
 
+  // Banner
   console.log(`\n📦 Output: '${outputDir}'`);
-  console.log(`🔧 Service: '${microserviceName}'  🌐 API: '${apiHost}'  🔐 Auth: ${authProvider}\n`);
+  console.log(`🔧 Service: '${microserviceName}'  🌐 API: '${apiHost}'  🔐 Auth: ${authProvider}`);
+  if (useGateway) console.log(`🧭 Gateway mode ON  (service: ${gatewayServiceName || '(none set)'})\n`);
+  else console.log('');
 
   // ---------------- Core / Env / Auth ----------------
   console.log('• Generating core/env/auth ...');
 
   writeFile(
-    path.join(dirs.coreDir, 'env', 'env.dart'),
+    path.join(dirs.coreEnvDir, 'env.dart'),
     generateEnvTemplate({
+      // General
+      appName,
+      envName,
       apiHost,
       useGateway,
       gatewayServiceName,
-      pluralOverrides,
+      pluralOverrides: pluralMap,
+
+      // Auth
       authProvider,
+      // JWT
       jwtAuthEndpoint,
       accountEndpoint,
+      allowCredentialCacheForJwt,
+      // Keycloak
+      keycloakTokenEndpoint,
+      keycloakLogoutEndpoint,
+      keycloakAuthorizeEndpoint,
+      keycloakUserinfoEndpoint,
+      keycloakClientId,
+      keycloakClientSecret,
+      keycloakScopes,
+
+      // Paging / sorting / flags
+      defaultPageSize,
+      pageSizeOptions,
+      defaultSort,
+      defaultSearchSort,
+      distinctByDefault,
+
+      // Headers / storage
+      totalCountHeaderName,
+      storageKeyAccessToken,
+      storageKeyAccessExpiry,
+      storageKeyRefreshToken,
+      storageKeyRefreshExpiry,
+      storageKeyRememberedUsername,
+
+      // Relationships
+      relationshipPayloadMode,
     }),
     force,
     'core/env/env.dart'
@@ -161,7 +286,7 @@ function main() {
   writeFile(path.join(dirs.coreAuthDir, 'role_middleware.dart'), generateRoleMiddlewareTemplate(), force, 'core/auth/role_middleware.dart');
   writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
 
-  // App shell & routes
+  // App shell
   console.log('• Generating app shell & routes ...');
   writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
 
@@ -169,7 +294,6 @@ function main() {
   console.log('• Generating common widgets ...');
   writeFile(path.join(dirs.widgetsDir, 'fhipster_input_field.dart'), generateFHipsterInputFieldTemplate(), force, 'widgets/fhipster_input_field.dart');
 
-  // Table widgets (multiple files)
   const tableWidgetFiles = generateTableWidgetsTemplates();
   Object.entries(tableWidgetFiles).forEach(([relPath, content]) => {
     writeFile(path.join(dirs.widgetsDir, relPath), content, force, path.join('widgets', relPath));
@@ -184,20 +308,18 @@ function main() {
     }
   }
 
-  // ---------------- Per-entity generation ----------------
+  // ---------------- Entities ----------------
   console.log('• Generating entities (models/services/controllers/forms/views) ...');
-
-  /** Build route registrations */
   const entityRoutes = [];
 
   if (entities) {
     for (const [entityName, fields] of Object.entries(entities)) {
-      const fileBase = toFileName(entityName);         // e.g., "user_profile"
-      const classBase = toClassName(entityName);       // e.g., "UserProfile"
-      const instanceBase = toInstanceName(entityName); // e.g., "userProfile"
-      const pluralBase = toPlural(fileBase);           // e.g., "user_profiles" (or use your pluralizer)
+      const fileBase = toFileName(entityName);
+      const classBase = toClassName(entityName);
+      const instanceBase = toInstanceName(entityName); // reserved if needed
+      const pluralBase = toPlural(fileBase);
 
-      // Models
+      // Model
       writeFile(
         path.join(dirs.modelsDir, `${fileBase}_model.dart`),
         generateModelTemplate(entityName, fields, enums),
@@ -205,7 +327,7 @@ function main() {
         `models/${fileBase}_model.dart`
       );
 
-      // Services
+      // Service
       writeFile(
         path.join(dirs.servicesDir, `${fileBase}_service.dart`),
         generateServiceTemplate(entityName, microserviceName, apiHost),
@@ -213,7 +335,7 @@ function main() {
         `services/${fileBase}_service.dart`
       );
 
-      // Controllers
+      // Controller
       writeFile(
         path.join(dirs.controllersDir, `${fileBase}_controller.dart`),
         generateEntityControllerTemplate(entityName, fields, enums),
@@ -221,7 +343,7 @@ function main() {
         `controllers/${fileBase}_controller.dart`
       );
 
-      // Forms
+      // Form
       writeFile(
         path.join(dirs.formsDir, `${fileBase}_form.dart`),
         generateFormTemplate(entityName, fields, enums),
@@ -229,7 +351,7 @@ function main() {
         `forms/${fileBase}_form.dart`
       );
 
-      // Table view
+      // Table View
       writeFile(
         path.join(dirs.viewsDir, `${fileBase}_table_view.dart`),
         generateTableViewTemplate(entityName, fields),
@@ -237,33 +359,27 @@ function main() {
         `views/${fileBase}_table_view.dart`
       );
 
-      // Register route for the entity table view (guarded by Auth; add roles if you want)
+      // Route
       entityRoutes.push({
-        path: `/${pluralBase}`,                                  // e.g., /user_profiles
+        path: `/${pluralBase}`,
         controllerFile: `${fileBase}_controller.dart`,
         viewFile: `${fileBase}_table_view.dart`,
         controllerClass: `${classBase}Controller`,
         viewClass: `${classBase}TableView`,
-        roles: [], // put ['ROLE_ADMIN'] etc if you want role guard by default
+        roles: [],
       });
     }
   }
 
-  // ---------------- Static screens ----------------
+  // Static screens
   console.log('• Generating static views/controllers ...');
-
-  // Splash
   writeFile(path.join(dirs.controllersDir, 'splash_controller.dart'), generateSplashControllerTemplate(), force, 'controllers/splash_controller.dart');
   writeFile(path.join(dirs.viewsDir, 'splash_view.dart'), generateSplashViewTemplate(), force, 'views/splash_view.dart');
 
-  // Login
   writeFile(path.join(dirs.controllersDir, 'login_controller.dart'), generateLoginControllerTemplate(), force, 'controllers/login_controller.dart');
   writeFile(path.join(dirs.viewsDir, 'login_view.dart'), generateLoginViewTemplate(), force, 'views/login_view.dart');
 
-  // Home
   writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(), force, 'views/home_view.dart');
-
-  // Unauthorized / Forbidden
   writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
   writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
 
@@ -275,21 +391,28 @@ function main() {
     'core/routes.dart'
   );
 
-  // ---------------- Done ----------------
+  // Optional main.dart
+  if (emitMain) {
+    writeFile(
+      path.join(dirs.libDir, 'main.dart'),
+      generateMainDartTemplate(),
+      force,
+      'main.dart'
+    );
+  }
+
+  // Done
   console.log('\n✅ Generation complete!');
   console.log('Next steps:');
-  console.log("1) In your Flutter app's main.dart, call:  Env.initGenerated();");
-  console.log("   (Or Env.init(EnvConfig(...)) to override values at runtime.)");
-  console.log("2) Ensure you added Flutter deps:  flutter pub add get get_storage responsive_grid");
-  console.log("3) Set initialRoute to AppRoutes.splash and use GetMaterialApp with AppRoutes.pages.");
-  console.log(`4) Copy '${outputDir}' into your Flutter project's 'lib' (or generate directly to ./lib).`);
+  console.log("1) Ensure Flutter deps:  flutter pub add get get_storage responsive_grid");
+  console.log("2) If you didn't emit main.dart: wire Env.initGenerated(), ApiClient & AuthService, and AppRoutes.pages in your app.");
+  console.log(`3) Output is at: ${outputDir}`);
 }
 
-// ------------------------------------------------------------
+// ----------------------------------------------------------------
 
 function resolveDirs(rootOut) {
-  const libDir = rootOut; // we generate a lib/ tree (user may pass ./lib)
-
+  const libDir = rootOut; // user usually passes ./lib; default is ./lib
   return {
     libDir,
     coreDir: path.join(libDir, 'core'),
@@ -323,6 +446,132 @@ function ensureDirs(dirs) {
     dirs.widgetsCommonDir,
     dirs.enumsDir,
   ].forEach((d) => fs.mkdirSync(d, { recursive: true }));
+}
+
+function loadYamlConfig(providedPath) {
+  const tryPaths = [];
+  if (providedPath) tryPaths.push(path.resolve(process.cwd(), providedPath));
+  tryPaths.push(
+    path.resolve(process.cwd(), 'fhipster.config.yaml'),
+    path.resolve(process.cwd(), 'fhipster.config.yml')
+  );
+
+  for (const p of tryPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, 'utf8');
+        const data = yaml.load(raw) || {};
+        console.log(`📝 Using config: ${p}`);
+        return normalizeYaml(data);
+      } catch (e) {
+        console.error(`⚠️ Failed to read YAML at ${p}: ${e.message}`);
+        return {};
+      }
+    }
+  }
+  return {};
+}
+
+function normalizeYaml(data) {
+  // Accept flat keys or under "project"
+  const root = { ...(data || {}) };
+  const proj = root.project || {};
+  const auth = root.auth || proj.auth || {};
+  const kc = auth.keycloak || {};
+  return {
+    // project basics
+    jdlFile: root.jdlFile || proj.jdlFile,
+    outputDir: root.outputDir || proj.outputDir,
+    microservice: root.microservice || proj.microservice,
+    apiHost: root.apiHost || proj.apiHost,
+    useGateway: pickBool(root.useGateway, proj.useGateway, undefined),
+    gatewayServiceName: root.gatewayServiceName || proj.gatewayServiceName,
+    includeAuthGuards: pickBool(root.includeAuthGuards, proj.includeAuthGuards, undefined),
+    emitMain: pickBool(root.emitMain, proj.emitMain, undefined),
+
+    // env extras
+    appName: root.appName || proj.appName,
+    envName: root.envName || proj.envName,
+    defaultPageSize: root.defaultPageSize ?? proj.defaultPageSize,
+    pageSizeOptions: root.pageSizeOptions || proj.pageSizeOptions,
+    defaultSort: root.defaultSort || proj.defaultSort,
+    defaultSearchSort: root.defaultSearchSort || proj.defaultSearchSort,
+    distinctByDefault: pickBool(root.distinctByDefault, proj.distinctByDefault, undefined),
+    totalCountHeaderName: root.totalCountHeaderName || proj.totalCountHeaderName,
+    storageKeyAccessToken: root.storageKeyAccessToken || proj.storageKeyAccessToken,
+    storageKeyAccessExpiry: root.storageKeyAccessExpiry || proj.storageKeyAccessExpiry,
+    storageKeyRefreshToken: root.storageKeyRefreshToken || proj.storageKeyRefreshToken,
+    storageKeyRefreshExpiry: root.storageKeyRefreshExpiry || proj.storageKeyRefreshExpiry,
+    storageKeyRememberedUsername: root.storageKeyRememberedUsername || proj.storageKeyRememberedUsername,
+    relationshipPayloadMode: root.relationshipPayloadMode || proj.relationshipPayloadMode,
+
+    // auth
+    auth: {
+      provider: auth.provider,
+      jwtAuthEndpoint: auth.jwtAuthEndpoint,
+      accountEndpoint: auth.accountEndpoint,
+      allowCredentialCacheForJwt: pickBool(auth.allowCredentialCacheForJwt, undefined, undefined),
+      keycloak: {
+        tokenEndpoint: kc.tokenEndpoint,
+        logoutEndpoint: kc.logoutEndpoint,
+        authorizeEndpoint: kc.authorizeEndpoint,
+        userinfoEndpoint: kc.userinfoEndpoint,
+        clientId: kc.clientId,
+        clientSecret: kc.clientSecret,
+        scopes: kc.scopes,
+      },
+    },
+
+    // plural overrides
+    pluralOverrides: root.pluralOverrides || proj.pluralOverrides || {},
+  };
+}
+
+function pick(...vals) {
+  for (const v of vals) {
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+}
+function pickBool(...vals) {
+  for (const v of vals) {
+    if (v === true || v === false) return v;
+  }
+  return undefined;
+}
+function pickNum(...vals) {
+  for (const v of vals) {
+    if (v !== undefined && v !== null && isFinite(v)) return Number(v);
+  }
+  return undefined;
+}
+
+function resolveList(cliStringOrUndefined, yamlListOrUndefined, fallbackArr = []) {
+  if (typeof cliStringOrUndefined === 'string' && cliStringOrUndefined.trim().length) {
+    return cliStringOrUndefined.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  if (Array.isArray(yamlListOrUndefined)) return yamlListOrUndefined;
+  return fallbackArr;
+}
+function resolveIntList(cliStringOrUndefined, yamlListOrUndefined, fallbackArr = []) {
+  if (typeof cliStringOrUndefined === 'string' && cliStringOrUndefined.trim().length) {
+    return cliStringOrUndefined
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => Number.isFinite(n));
+  }
+  if (Array.isArray(yamlListOrUndefined)) {
+    return yamlListOrUndefined.map(n => parseInt(n, 10)).filter(Number.isFinite);
+  }
+  return fallbackArr;
+}
+
+function resolveJdlPath(jdlFromArgOrYaml) {
+  if (!jdlFromArgOrYaml) {
+    console.error('❌ You must provide the path to the JDL file (positional arg) or set jdlFile in YAML.');
+    process.exit(1);
+  }
+  return path.resolve(process.cwd(), jdlFromArgOrYaml);
 }
 
 main();

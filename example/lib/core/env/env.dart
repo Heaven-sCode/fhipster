@@ -1,114 +1,4 @@
-// generators/env_generator.js
-// Emits: lib/core/env/env.dart
-// - Dual auth: Keycloak OIDC or JHipster JWT
-// - Gateway-aware URL builders
-// - Bakes ALL config from YAML/CLI (Keycloak + JWT + general app/env settings)
-// - SAFE: escapes Dart ${...} so Node doesn't interpolate
-
-function esc(str = '') {
-  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-}
-function toDartBool(v, fallback = false) {
-  return (v === true || v === false) ? (v ? 'true' : 'false') : (fallback ? 'true' : 'false');
-}
-function toDartEnum_AuthProvider(p) {
-  const k = (p || 'keycloak').toLowerCase();
-  return (k === 'jhipsterjwt' || k === 'jhipster_jwt')
-    ? 'AuthProvider.jhipsterJwt'
-    : 'AuthProvider.keycloak';
-}
-function toDartEnum_RelMode(v) {
-  const k = (v || 'idOnly').toLowerCase();
-  return k === 'fullobject' ? 'RelationshipPayloadMode.fullObject' : 'RelationshipPayloadMode.idOnly';
-}
-function mapToDartLiteral(obj = {}) {
-  const lines = Object.entries(obj).map(
-    ([k, v]) => `      '${esc(k)}': '${esc(v)}',`
-  );
-  return lines.length ? `{\n${lines.join('\n')}\n    }` : '{}';
-}
-function listToDartConstStringList(arr, fallback = []) {
-  if (!Array.isArray(arr) || arr.length === 0) arr = fallback;
-  const items = arr.map(s => `'${esc(String(s))}'`).join(', ');
-  return `const [${items}]`;
-}
-function listToDartConstIntList(arr, fallback = []) {
-  if (!Array.isArray(arr) || arr.length === 0) arr = fallback;
-  const items = arr.map(n => `${Number(n) | 0}`).join(', ');
-  return `const [${items}]`;
-}
-
-/**
- * Generate env.dart with baked defaults from opts (YAML/CLI).
- *
- * All fields are optional; sensible defaults applied when absent.
- */
-function generateEnvTemplate(opts = {}) {
-  // ---------- General ----------
-  const appName = opts.appName || 'FHipster';
-  const envName = opts.envName || 'dev';
-  const apiHost = opts.apiHost || 'http://localhost:8080';
-  const useGateway = !!opts.useGateway;
-  const gatewayServiceName = opts.gatewayServiceName || null;
-  const pluralOverrides = opts.pluralOverrides || {};
-
-  // ---------- Auth Provider ----------
-  const authProvider = (opts.authProvider || 'keycloak').toLowerCase(); // 'keycloak'|'jhipsterJwt'
-
-  // ---------- Keycloak (if used) ----------
-  const kcTokenEndpoint      = opts.keycloakTokenEndpoint      || 'CHANGE_ME_TOKEN_ENDPOINT';
-  const kcLogoutEndpoint     = opts.keycloakLogoutEndpoint     || 'CHANGE_ME_LOGOUT_ENDPOINT';
-  const kcAuthorizeEndpoint  = opts.keycloakAuthorizeEndpoint  || 'CHANGE_ME_AUTHORIZE_ENDPOINT';
-  const kcUserinfoEndpoint   = opts.keycloakUserinfoEndpoint   || 'CHANGE_ME_USERINFO_ENDPOINT';
-  const kcClientId           = opts.keycloakClientId           || 'CHANGE_ME_CLIENT_ID';
-  const kcClientSecret       = (opts.keycloakClientSecret != null) ? opts.keycloakClientSecret : null;
-  const kcScopes             = Array.isArray(opts.keycloakScopes) && opts.keycloakScopes.length
-    ? opts.keycloakScopes
-    : ['openid', 'profile', 'email', 'offline_access'];
-
-  // ---------- JWT (if used) ----------
-  const jwtAuthEndpoint      = opts.jwtAuthEndpoint      || '/api/authenticate';
-  const accountEndpoint      = opts.accountEndpoint      || '/api/account';
-  const allowCredCacheJwt    = (opts.allowCredentialCacheForJwt === true || opts.allowCredentialCacheForJwt === false)
-    ? opts.allowCredentialCacheForJwt
-    : false;
-
-  // ---------- Paging / Sorting / Distinct ----------
-  const defaultPageSize      = Number.isFinite(opts.defaultPageSize) ? Number(opts.defaultPageSize) : 20;
-  const pageSizeOptions      = Array.isArray(opts.pageSizeOptions) ? opts.pageSizeOptions : [10, 20, 50, 100];
-  const defaultSort          = Array.isArray(opts.defaultSort) && opts.defaultSort.length ? opts.defaultSort : ['id,desc'];
-  const defaultSearchSort    = Array.isArray(opts.defaultSearchSort) && opts.defaultSearchSort.length ? opts.defaultSearchSort : ['_score,desc'];
-  const distinctByDefault    = !!opts.distinctByDefault;
-
-  // ---------- Headers / Storage ----------
-  const totalCountHeaderName = opts.totalCountHeaderName || 'X-Total-Count';
-
-  const storageKeyAccessToken       = opts.storageKeyAccessToken       || 'fh_access_token';
-  const storageKeyAccessExpiry      = opts.storageKeyAccessExpiry      || 'fh_access_expiry';
-  const storageKeyRefreshToken      = opts.storageKeyRefreshToken      || 'fh_refresh_token';
-  const storageKeyRefreshExpiry     = opts.storageKeyRefreshExpiry     || 'fh_refresh_expiry';
-  const storageKeyRememberedUsername= opts.storageKeyRememberedUsername|| 'fh_remembered_username';
-
-  // ---------- Relationships ----------
-  const relationshipPayloadMode     = toDartEnum_RelMode(opts.relationshipPayloadMode);
-
-  // ---------- Literals ----------
-  const gw = gatewayServiceName ? `'${esc(gatewayServiceName)}'` : 'null';
-  const pluralOverridesLiteral = mapToDartLiteral(pluralOverrides);
-
-  const kcToken   = `'${esc(kcTokenEndpoint)}'`;
-  const kcLogout  = `'${esc(kcLogoutEndpoint)}'`;
-  const kcAuthz   = `'${esc(kcAuthorizeEndpoint)}'`;
-  const kcUser    = `'${esc(kcUserinfoEndpoint)}'`;
-  const kcClient  = `'${esc(kcClientId)}'`;
-  const kcSecret  = kcClientSecret != null ? `'${esc(kcClientSecret)}'` : 'null';
-  const kcScopesL = listToDartConstStringList(kcScopes);
-
-  const pageSizeOptionsL   = listToDartConstIntList(pageSizeOptions);
-  const defaultSortL       = listToDartConstStringList(defaultSort);
-  const defaultSearchSortL = listToDartConstStringList(defaultSearchSort);
-
-  return `// lib/core/env/env.dart
+// lib/core/env/env.dart
 // -----------------------------------------------------------------------------
 // FHipster Environment (self-contained) - GENERATED
 // -----------------------------------------------------------------------------
@@ -241,53 +131,56 @@ class Env {
     if (_i != null) return;
     _i = Env._(EnvConfig(
       // App
-      appName: '${esc(appName)}',
-      envName: '${esc(envName)}',
+      appName: 'FHipster',
+      envName: 'dev',
 
       // API
-      apiHost: '${esc(apiHost)}',
-      useGateway: ${toDartBool(useGateway)},
-      gatewayServiceName: ${gatewayServiceName ? `'${esc(gatewayServiceName)}'` : 'null'},
+      apiHost: 'http://34.50.81.155:8080',
+      useGateway: true,
+      gatewayServiceName: 'operationsModule',
 
       // Auth
-      authProvider: ${toDartEnum_AuthProvider(authProvider)},
+      authProvider: AuthProvider.keycloak,
 
       // Keycloak baked values (still present even if you use JWT)
-      tokenEndpoint: '${esc(kcTokenEndpoint)}',
-      logoutEndpoint: '${esc(kcLogoutEndpoint)}',
-      authorizeEndpoint: '${esc(kcAuthorizeEndpoint)}',
-      userinfoEndpoint: '${esc(kcUserinfoEndpoint)}',
-      keycloakClientId: '${esc(kcClientId)}',
-      keycloakClientSecret: ${kcClientSecret != null ? `'${esc(kcClientSecret)}'` : 'null'},
-      keycloakScopes: ${listToDartConstStringList(kcScopes)},
+      tokenEndpoint: 'http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/token',
+      logoutEndpoint: 'http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/logout',
+      authorizeEndpoint: 'http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/auth',
+      userinfoEndpoint: 'http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/userinfo',
+      keycloakClientId: 'my-client',
+      keycloakClientSecret: '',
+      keycloakScopes: const ['openid', 'profile', 'email', 'offline_access'],
 
       // JWT baked values
-      jwtAuthEndpoint: '${esc(jwtAuthEndpoint)}',
-      accountEndpoint: '${esc(accountEndpoint)}',
-      allowCredentialCacheForJwt: ${toDartBool(allowCredCacheJwt)},
+      jwtAuthEndpoint: '/api/authenticate',
+      accountEndpoint: '/api/account',
+      allowCredentialCacheForJwt: false,
 
       // Paging / sorting
-      defaultPageSize: ${defaultPageSize | 0},
-      pageSizeOptions: ${listToDartConstIntList(pageSizeOptions)},
-      defaultSort: ${listToDartConstStringList(defaultSort)},
-      defaultSearchSort: ${listToDartConstStringList(defaultSearchSort)},
-      distinctByDefault: ${toDartBool(distinctByDefault)},
+      defaultPageSize: 20,
+      pageSizeOptions: const [10, 20, 50, 100],
+      defaultSort: const ['id,desc'],
+      defaultSearchSort: const ['_score,desc'],
+      distinctByDefault: false,
 
       // Headers
-      totalCountHeaderName: '${esc(totalCountHeaderName)}',
+      totalCountHeaderName: 'X-Total-Count',
 
       // Storage keys
-      storageKeyAccessToken: '${esc(storageKeyAccessToken)}',
-      storageKeyAccessExpiry: '${esc(storageKeyAccessExpiry)}',
-      storageKeyRefreshToken: '${esc(storageKeyRefreshToken)}',
-      storageKeyRefreshExpiry: '${esc(storageKeyRefreshExpiry)}',
-      storageKeyRememberedUsername: '${esc(storageKeyRememberedUsername)}',
+      storageKeyAccessToken: 'fh_access_token',
+      storageKeyAccessExpiry: 'fh_access_expiry',
+      storageKeyRefreshToken: 'fh_refresh_token',
+      storageKeyRefreshExpiry: 'fh_refresh_expiry',
+      storageKeyRememberedUsername: 'fh_remembered_username',
 
       // Relationships
-      relationshipPayloadMode: ${relationshipPayloadMode},
+      relationshipPayloadMode: RelationshipPayloadMode.idOnly,
 
       // Plural overrides
-      pluralOverrides: ${mapToDartLiteral(pluralOverrides)},
+      pluralOverrides: {
+      'person': 'people',
+      'address': 'addresses',
+    },
     ));
   }
 
@@ -377,8 +270,8 @@ class Env {
   }) {
     final p = _slug(plural);
     final path = useGateway
-        ? '/services/\\\${microserviceOverride ?? (gatewayServiceName ?? '')}/api/\\$p'
-        : '/api/\\$p';
+        ? '/services/\${microserviceOverride ?? (gatewayServiceName ?? '')}/api/\$p'
+        : '/api/\$p';
     return _url(path);
   }
 
@@ -389,8 +282,8 @@ class Env {
   }) {
     final p = _slug(plural);
     final path = useGateway
-        ? '/services/\\\${microserviceOverride ?? (gatewayServiceName ?? '')}/api/_search/\\$p'
-        : '/api/_search/\\$p';
+        ? '/services/\${microserviceOverride ?? (gatewayServiceName ?? '')}/api/_search/\$p'
+        : '/api/_search/\$p';
     return _url(path);
   }
 
@@ -404,14 +297,10 @@ class Env {
   /// Minimal slugifier for paths (lowercase, strip disallowed chars).
   String _slug(String s) {
     final trimmed = s.trim();
-    final hyphened = trimmed.replaceAll(RegExp(r'\\s+'), '-');
-    return hyphened.replaceAll(RegExp(r'[^A-Za-z0-9_\\-]'), '').toLowerCase();
+    final hyphened = trimmed.replaceAll(RegExp(r'\s+'), '-');
+    return hyphened.replaceAll(RegExp(r'[^A-Za-z0-9_\-]'), '').toLowerCase();
   }
 
   bool _isVowel(String ch) => 'aeiou'.contains(ch.toLowerCase());
 }
 
-`;
-}
-
-module.exports = { generateEnvTemplate };

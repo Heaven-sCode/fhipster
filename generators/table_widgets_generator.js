@@ -1,148 +1,161 @@
 // generators/table_widgets_generator.js
-// Emits common reusable table widgets:
-//  - FHipsterSearchField: debounced search input
-//  - FHipsterPaginationBar: page/size controls with range "x–y of z"
-//  - FHipsterTableToolbar: responsive toolbar combining search + action buttons
+// Returns a map of relative widget file paths -> Dart source.
+// bin/index.js will iterate this map and write each file under lib/widgets/<relPath>
 
-function generateSearchFieldTemplate() {
-  return `import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:get/get.dart';
+function generateTableWidgetsTemplates() {
+  return {
+    // ---- Table widgets ------------------------------------------------------
+    'table/fhipster_search_field.dart': dartSearchField(),
+    'table/fhipster_pagination_bar.dart': dartPaginationBar(),
+    'table/fhipster_table_toolbar.dart': dartTableToolbar(),
 
-class FHipsterSearchField extends StatefulWidget {
+    // ---- Common widgets -----------------------------------------------------
+    'common/confirm_dialog.dart': dartConfirmDialog(),
+  };
+}
+
+function dartSearchField() {
+  return `import 'package:flutter/material.dart';
+
+class FHipsterSearchField extends StatelessWidget {
+  final TextEditingController controller;
   final String hintText;
-  final Duration debounce;
-  final ValueChanged<String>? onChangedDebounced;
-  final ValueChanged<String>? onChangedImmediate;
-  final String? initialText;
-  final double? maxWidth;
-  final bool enabled;
+  final ValueChanged<String>? onChanged;
+  final VoidCallback? onClear;
+  final bool autofocus;
 
   const FHipsterSearchField({
     super.key,
+    required this.controller,
     this.hintText = 'Search',
-    this.debounce = const Duration(milliseconds: 350),
-    this.onChangedDebounced,
-    this.onChangedImmediate,
-    this.initialText,
-    this.maxWidth = 420,
-    this.enabled = true,
+    this.onChanged,
+    this.onClear,
+    this.autofocus = false,
   });
 
   @override
-  State<FHipsterSearchField> createState() => _FHipsterSearchFieldState();
-}
-
-class _FHipsterSearchFieldState extends State<FHipsterSearchField> {
-  late final TextEditingController _ctl;
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctl = TextEditingController(text: widget.initialText ?? '');
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _ctl.dispose();
-    super.dispose();
-  }
-
-  void _onChanged(String v) {
-    widget.onChangedImmediate?.call(v);
-    _timer?.cancel();
-    _timer = Timer(widget.debounce, () {
-      widget.onChangedDebounced?.call(v);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final child = TextField(
-      controller: _ctl,
-      enabled: widget.enabled,
-      onChanged: _onChanged,
-      decoration: InputDecoration(
-        isDense: true,
-        prefixIcon: const Icon(Icons.search),
-        hintText: widget.hintText.tr,
-        border: const OutlineInputBorder(),
-      ),
-    );
-
-    if (widget.maxWidth == null) return child;
     return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: widget.maxWidth!),
-      child: child,
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: TextField(
+        controller: controller,
+        autofocus: autofocus,
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.search),
+          hintText: hintText,
+          suffixIcon: controller.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Clear',
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    controller.clear();
+                    onClear?.call();
+                    onChanged?.call('');
+                  },
+                ),
+        ),
+      ),
     );
   }
 }
 `;
 }
 
-function generatePaginationBarTemplate() {
+function dartPaginationBar() {
   return `import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import '../../core/env/env.dart';
 
 class FHipsterPaginationBar extends StatelessWidget {
-  final int page;  // zero-based
+  final int page; // 0-based
   final int size;
   final int total;
-  final ValueChanged<int> onPageChanged;
-  final ValueChanged<int> onSizeChanged;
-  final List<int>? pageSizeOptions;
-  final bool busy;
+  final List<int> pageSizeOptions;
+  final ValueChanged<int>? onPageChanged; // new page index (0-based)
+  final ValueChanged<int>? onSizeChanged; // new page size
 
   const FHipsterPaginationBar({
     super.key,
     required this.page,
     required this.size,
     required this.total,
-    required this.onPageChanged,
-    required this.onSizeChanged,
-    this.pageSizeOptions,
-    this.busy = false,
+    this.pageSizeOptions = const [10, 20, 50, 100],
+    this.onPageChanged,
+    this.onSizeChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    final opts = pageSizeOptions ?? Env.get().pageSizeOptions;
-    final start = total == 0 ? 0 : (page * size) + 1;
-    final end = ((page + 1) * size).clamp(0, total);
+    final int first = total == 0 ? 0 : (page * size) + 1;
+    final int last = total == 0 ? 0 : ((page + 1) * size).clamp(0, total);
+    final int pageCount = (total == 0 || size <= 0) ? 1 : ((total + size - 1) ~/ size);
+    final bool canPrev = page > 0;
+    final bool canNext = (page + 1) < pageCount;
 
-    final canPrev = page > 0 && !busy;
-    final canNext = ((page + 1) * size) < total && !busy;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Text('$first–$last of $total'),
+        const SizedBox(width: 12),
+        IconButton(
+          tooltip: 'Previous',
+          icon: const Icon(Icons.chevron_left),
+          onPressed: canPrev ? () => onPageChanged?.call(page - 1) : null,
+        ),
+        IconButton(
+          tooltip: 'Next',
+          icon: const Icon(Icons.chevron_right),
+          onPressed: canNext ? () => onPageChanged?.call(page + 1) : null,
+        ),
+        const SizedBox(width: 16),
+        DropdownButton<int>(
+          value: size,
+          underline: const SizedBox.shrink(),
+          items: pageSizeOptions.map((v) => DropdownMenuItem<int>(
+            value: v,
+            child: Text('$v / page'),
+          )).toList(),
+          onChanged: (v) {
+            if (v != null) onSizeChanged?.call(v);
+          },
+        ),
+      ],
+    );
+  }
+}
+`;
+}
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.35),
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
-      ),
+function dartTableToolbar() {
+  return `import 'package:flutter/material.dart';
+
+/// A simple toolbar row that can host a search field on the left and
+/// arbitrary trailing actions on the right.
+class FHipsterTableToolbar extends StatelessWidget {
+  final Widget? leading;       // e.g., FHipsterSearchField
+  final List<Widget> actions;  // e.g., [IconButton(...), ...]
+  final EdgeInsetsGeometry padding;
+
+  const FHipsterTableToolbar({
+    super.key,
+    this.leading,
+    this.actions = const [],
+    this.padding = const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: padding,
       child: Row(
         children: [
-          Text('Rows per page:'.tr),
-          const SizedBox(width: 8),
-          DropdownButton<int>(
-            value: size,
-            onChanged: busy ? null : (v) { if (v != null) onSizeChanged(v); },
-            items: opts.map((e) => DropdownMenuItem(value: e, child: Text(e.toString()))).toList(),
-          ),
+          if (leading != null) leading!,
           const Spacer(),
-          Text('\$start–\$end of \$total'),
-          IconButton(
-            tooltip: 'Previous'.tr,
-            icon: const Icon(Icons.chevron_left),
-            onPressed: canPrev ? () => onPageChanged(page - 1) : null,
-          ),
-          IconButton(
-            tooltip: 'Next'.tr,
-            icon: const Icon(Icons.chevron_right),
-            onPressed: canNext ? () => onPageChanged(page + 1) : null,
-          ),
+          ...actions.map((w) => Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: w,
+              )),
         ],
       ),
     );
@@ -151,73 +164,43 @@ class FHipsterPaginationBar extends StatelessWidget {
 `;
 }
 
-function generateTableToolbarTemplate() {
+function dartConfirmDialog() {
   return `import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import '../table/fhipster_search_field.dart';
 
-class FHipsterTableToolbar extends StatelessWidget {
-  final VoidCallback? onCreate;
-  final VoidCallback? onRefresh;
-  final ValueChanged<String>? onSearchDebounced;
-  final ValueChanged<String>? onSearchImmediate;
-  final String? searchInitial;
-  final bool showSearch;
-  final bool busy;
-  final List<Widget> extraActions;
-
-  const FHipsterTableToolbar({
-    super.key,
-    this.onCreate,
-    this.onRefresh,
-    this.onSearchDebounced,
-    this.onSearchImmediate,
-    this.searchInitial,
-    this.showSearch = true,
-    this.busy = false,
-    this.extraActions = const [],
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        if (showSearch)
-          FHipsterSearchField(
-            initialText: searchInitial,
-            onChangedImmediate: onSearchImmediate,
-            onChangedDebounced: onSearchDebounced,
-          ),
-        if (onCreate != null)
-          FilledButton.icon(
-            onPressed: busy ? null : onCreate,
-            icon: const Icon(Icons.add),
-            label: Text('New'.tr),
-          ),
-        if (onRefresh != null)
-          OutlinedButton.icon(
-            onPressed: busy ? null : onRefresh,
-            icon: const Icon(Icons.refresh),
-            label: Text('Refresh'.tr),
-          ),
-        ...extraActions,
-        if (busy)
-          const Padding(
-            padding: EdgeInsets.only(left: 8),
-            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-          ),
+Future<bool?> showConfirmDialog(
+  BuildContext context, {
+  String title = 'Confirm',
+  String message = 'Are you sure?',
+  String confirmText = 'Yes',
+  String cancelText = 'No',
+  bool destructive = false,
+}) {
+  final theme = Theme.of(context);
+  return showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(cancelText),
+        ),
+        FilledButton(
+          style: destructive
+              ? FilledButton.styleFrom(
+                  backgroundColor: theme.colorScheme.error,
+                  foregroundColor: theme.colorScheme.onError,
+                )
+              : null,
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(confirmText),
+        ),
       ],
-    );
-  }
+    ),
+  );
 }
 `;
 }
 
-module.exports = {
-  generateSearchFieldTemplate,
-  generatePaginationBarTemplate,
-  generateTableToolbarTemplate,
-};
+module.exports = { generateTableWidgetsTemplates };

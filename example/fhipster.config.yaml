@@ -1,0 +1,47 @@
+# FHipster config (YAML)
+# You can still override any of these with CLI flags.
+
+# Optional – if you don't pass the JDL as a positional arg:
+jdlFile: ./JDL/app.jdl
+emitMain: false
+
+# Where to write the Flutter lib/ tree
+outputDir: ./lib
+
+# Your JHipster microservice name
+microservice: operationsModule
+
+# API host (Gateway in front of services)
+apiHost: http://34.50.81.155:8080
+
+# Use Gateway routing: /services/<service>/api/**
+useGateway: true
+gatewayServiceName: operationsModule
+
+# Attach auth & role guards to generated routes
+includeAuthGuards: true
+
+# Plural overrides (optional) – when JDL names don't pluralize well
+pluralOverrides:
+  person: people
+  address: addresses
+
+# Authentication mode (dual)
+auth:
+  provider: keycloak   # keycloak | jhipsterJwt
+
+  # For JWT mode you could set:
+  # jwtAuthEndpoint: /api/authenticate
+  # accountEndpoint: /api/account
+
+  # Optional: if you want to bake Keycloak endpoints directly in env.dart in the future,
+  # keep these here; bin/index.js already passes YAML through so env_generator can use them
+  # once extended to accept them.
+  keycloak:
+    tokenEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/token
+    logoutEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/logout
+    authorizeEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/auth
+    userinfoEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/userinfo
+    clientId: my-client
+    clientSecret: ""
+    scopes: [openid, profile, email, offline_access]
