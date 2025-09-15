@@ -159,6 +159,13 @@ class MediaAssetsController extends GetxController {
       propertiesLoading.value = true;
       final res = await svc.listPaged(page: 0, size: 1000, sort: ['id,asc']);
       propertiesOptions.assignAll(res.items);
+      final current = properties.value;
+      if (current?.id != null) {
+        final idx = propertiesOptions.indexWhere((e) => e.id == current.id);
+        if (idx != -1) {
+          properties.value = propertiesOptions[idx];
+        }
+      }
     } catch (e) {
       _error('Failed to load properties options', e);
     } finally {

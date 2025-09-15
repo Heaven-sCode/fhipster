@@ -6,6 +6,9 @@ import '../controllers/properties_controller.dart';
 import '../models/properties_model.dart';
 import '../forms/properties_form.dart';
 import '../widgets/common/confirm_dialog.dart';
+import '../controllers/media_assets_controller.dart';
+import '../forms/media_assets_form.dart';
+
 
 class PropertiesTableView extends GetView<PropertiesController> {
   const PropertiesTableView({super.key});
@@ -192,6 +195,14 @@ class PropertiesTableView extends GetView<PropertiesController> {
   // --------- dialogs ---------
 
   void _openFormDialog(BuildContext context, {required String title}) {
+    _showFormDialog(context, title: title, body: PropertiesForm());
+  }
+
+  void _openChildFormDialog(BuildContext context, {required String title, required Widget body}) {
+    _showFormDialog(context, title: title, body: body);
+  }
+
+  void _showFormDialog(BuildContext context, {required String title, required Widget body}) {
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
@@ -210,7 +221,7 @@ class PropertiesTableView extends GetView<PropertiesController> {
             ),
             body: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: PropertiesForm(),
+              child: body,
             ),
           ),
         ),
@@ -245,7 +256,7 @@ class PropertiesTableView extends GetView<PropertiesController> {
               _kv('Area', m.area?.toString() ?? ''),
               _kv('Value', m.value?.toString() ?? ''),
               _kv('Facilities', m.facilities?.toString() ?? ''),
-              _kv('Media Assets', ((m.mediaAssets?.length) ?? 0).toString()),
+              _kvWithAction('Media Assets', ((m.mediaAssets?.length) ?? 0).toString(), actionLabel: 'Create MediaAssets'.tr, onAction: () => _quickCreateMediaAssetsMediaAssets(context, m)),
                 ],
               ),
             ),
@@ -254,10 +265,38 @@ class PropertiesTableView extends GetView<PropertiesController> {
       ),
     );
   }
+
+  void _quickCreateMediaAssetsMediaAssets(BuildContext context, PropertiesModel parent) {
+    if ((parent.id ?? null) == null) {
+      Get.snackbar('Error'.tr, 'Save the  Properties before creating related  Media Assets'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 3));
+      return;
+    }
+    if (!Get.isRegistered<MediaAssetsController>()) Get.put(MediaAssetsController());
+    final ctrl = Get.find<MediaAssetsController>();
+    ctrl.beginCreate();
+    final existingIndex = ctrl.propertiesOptions.indexWhere((e) => e.id == parent.id);
+    if (existingIndex == -1) {
+      ctrl.propertiesOptions.add(parent);
+      ctrl.properties.value = parent;
+    } else {
+      ctrl.properties.value = ctrl.propertiesOptions[existingIndex];
+    }
+    Get.back();
+    _openChildFormDialog(
+      context,
+      title: 'Create MediaAssets'.tr,
+      body: MediaAssetsForm(),
+    );
+  }
+
 }
 
 // Simple key-value row for view dialog
 Widget _kv(String key, String value) {
+  return _kvWithAction(key, value);
+}
+
+Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallback? onAction}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Row(
@@ -268,7 +307,17 @@ Widget _kv(String key, String value) {
           child: Text(key, style: Get.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
         ),
         const SizedBox(width: 12),
-        Expanded(child: SelectableText(value)),
+        Expanded(
+          child: SelectableText(value),
+        ),
+        if (actionLabel != null && onAction != null) ...[
+          const SizedBox(width: 16),
+          FilledButton.icon(
+            onPressed: onAction,
+            icon: const Icon(Icons.add),
+            label: Text(actionLabel),
+          ),
+        ],
       ],
     ),
   );

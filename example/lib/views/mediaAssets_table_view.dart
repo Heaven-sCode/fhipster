@@ -7,6 +7,7 @@ import '../models/mediaAssets_model.dart';
 import '../forms/mediaAssets_form.dart';
 import '../widgets/common/confirm_dialog.dart';
 
+
 class MediaAssetsTableView extends GetView<MediaAssetsController> {
   const MediaAssetsTableView({super.key});
 
@@ -188,6 +189,14 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
   // --------- dialogs ---------
 
   void _openFormDialog(BuildContext context, {required String title}) {
+    _showFormDialog(context, title: title, body: MediaAssetsForm());
+  }
+
+  void _openChildFormDialog(BuildContext context, {required String title, required Widget body}) {
+    _showFormDialog(context, title: title, body: body);
+  }
+
+  void _showFormDialog(BuildContext context, {required String title, required Widget body}) {
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
@@ -206,7 +215,7 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
             ),
             body: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: MediaAssetsForm(),
+              child: body,
             ),
           ),
         ),
@@ -248,10 +257,15 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
       ),
     );
   }
+
 }
 
 // Simple key-value row for view dialog
 Widget _kv(String key, String value) {
+  return _kvWithAction(key, value);
+}
+
+Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallback? onAction}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Row(
@@ -262,7 +276,17 @@ Widget _kv(String key, String value) {
           child: Text(key, style: Get.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
         ),
         const SizedBox(width: 12),
-        Expanded(child: SelectableText(value)),
+        Expanded(
+          child: SelectableText(value),
+        ),
+        if (actionLabel != null && onAction != null) ...[
+          const SizedBox(width: 16),
+          FilledButton.icon(
+            onPressed: onAction,
+            icon: const Icon(Icons.add),
+            label: Text(actionLabel),
+          ),
+        ],
       ],
     ),
   );

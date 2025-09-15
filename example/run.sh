@@ -1,1 +1,1 @@
-fhipster --config ./fhipster.config.yaml 
+fhipster --config ./fhipster.config.yaml  -f

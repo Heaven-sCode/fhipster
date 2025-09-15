@@ -205,7 +205,7 @@ function main() {
         writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums), force, `forms/${formF}`);
       }
       if (shouldGen('views')) {
-        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields), force, `views/${viewF}`);
+        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities), force, `views/${viewF}`);
       }
 
       const pluralPathSeg = resourcePlural(entityName, devProfile.pluralOverrides || {});

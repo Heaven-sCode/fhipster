@@ -142,6 +142,13 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}) 
       ${fname}Loading.value = true;
       final res = await svc.listPaged(page: 0, size: 1000, sort: ['id,asc']);
       ${fname}Options.assignAll(res.items);
+      final current = ${fname}.value;
+      if (current?.id != null) {
+        final idx = ${fname}Options.indexWhere((e) => e.id == current.id);
+        if (idx != -1) {
+          ${fname}.value = ${fname}Options[idx];
+        }
+      }
     } catch (e) {
       _error('Failed to load ${fname} options', e);
     } finally {

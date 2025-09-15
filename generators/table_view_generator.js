@@ -7,20 +7,47 @@
 // - View / Edit / Delete dialogs
 //
 // Usage:
-//   writeFile(..., generateTableViewTemplate('Order', fields), ...)
+//   writeFile(..., generateTableViewTemplate('Order', fields, allEntities), ...)
 
 function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 function labelize(fieldName) {
   return String(fieldName)
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (c) => c.toUpperCase());
 }
+const { toFileName } = require('../utils/naming');
 
-function generateTableViewTemplate(entityName, fields) {
+function generateTableViewTemplate(entityName, fields, allEntities = {}) {
   const className = `${entityName}TableView`;
   const controllerClass = `${entityName}Controller`;
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
+
+  // Determine child creation shortcuts for one-to-many relationships
+  const childRelInfos = (fields || [])
+    .filter((f) => f && f.isRelationship && String(f.relationshipType || '').toLowerCase() === 'onetomany')
+    .map((f) => {
+      const childEntity = f.targetEntity;
+      if (!childEntity) return null;
+      const childFields = allEntities?.[childEntity] || [];
+      const backRef = childFields.find((cf) => cf && cf.isRelationship && String(cf.relationshipType || '').toLowerCase() === 'manytoone' && cf.targetEntity === entityName);
+      if (!backRef) return null;
+      return {
+        fieldName: f.name,
+        label: labelize(f.name),
+        childEntity,
+        childField: backRef.name,
+        childController: `${childEntity}Controller`,
+        childForm: `${childEntity}Form`,
+      };
+    })
+    .filter(Boolean);
+  const childRelMap = {};
+  childRelInfos.forEach((info) => { childRelMap[info.fieldName] = info; });
+
+  const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
+  const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
 
   // Build DataColumn list (headers)
   const dataColumns = fields.map(f => {
@@ -60,6 +87,10 @@ function generateTableViewTemplate(entityName, fields) {
       const kind = (f.relationshipType || '').toLowerCase();
       if (kind === 'onetomany' || kind === 'manytomany') {
         valueExpr = `((m.${f.name}?.length) ?? 0).toString()`;
+        const childInfo = childRelMap[f.name];
+        if (childInfo) {
+          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m)),`;
+        }
       } else {
         valueExpr = `m.${f.name}?.id?.toString() ?? ''`;
       }
@@ -79,6 +110,7 @@ import '../controllers/${lcFirst(entityName)}_controller.dart';
 import '../models/${lcFirst(entityName)}_model.dart';
 import '../forms/${lcFirst(entityName)}_form.dart';
 import '../widgets/common/confirm_dialog.dart';
+${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}
 
 class ${className} extends GetView<${controllerClass}> {
   const ${className}({super.key});
@@ -255,6 +287,14 @@ ${dataCells},
   // --------- dialogs ---------
 
   void _openFormDialog(BuildContext context, {required String title}) {
+    _showFormDialog(context, title: title, body: ${entityName}Form());
+  }
+
+  void _openChildFormDialog(BuildContext context, {required String title, required Widget body}) {
+    _showFormDialog(context, title: title, body: body);
+  }
+
+  void _showFormDialog(BuildContext context, {required String title, required Widget body}) {
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
@@ -273,7 +313,7 @@ ${dataCells},
             ),
             body: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: ${entityName}Form(),
+              child: body,
             ),
           ),
         ),
@@ -312,10 +352,38 @@ ${detailRows}
       ),
     );
   }
+${childRelInfos.map(info => `
+  void _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) {
+    if ((parent.id ?? null) == null) {
+      Get.snackbar('Error'.tr, 'Save the ${labelize(entityName)} before creating related ${labelize(info.childEntity)}'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 3));
+      return;
+    }
+    if (!Get.isRegistered<${info.childController}>()) Get.put(${info.childController}());
+    final ctrl = Get.find<${info.childController}>();
+    ctrl.beginCreate();
+    final existingIndex = ctrl.${info.childField}Options.indexWhere((e) => e.id == parent.id);
+    if (existingIndex == -1) {
+      ctrl.${info.childField}Options.add(parent);
+      ctrl.${info.childField}.value = parent;
+    } else {
+      ctrl.${info.childField}.value = ctrl.${info.childField}Options[existingIndex];
+    }
+    Get.back();
+    _openChildFormDialog(
+      context,
+      title: 'Create ${info.childEntity}'.tr,
+      body: ${info.childForm}(),
+    );
+  }
+`).join('\n')}
 }
 
 // Simple key-value row for view dialog
 Widget _kv(String key, String value) {
+  return _kvWithAction(key, value);
+}
+
+Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallback? onAction}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Row(
@@ -326,7 +394,17 @@ Widget _kv(String key, String value) {
           child: Text(key, style: Get.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
         ),
         const SizedBox(width: 12),
-        Expanded(child: SelectableText(value)),
+        Expanded(
+          child: SelectableText(value),
+        ),
+        if (actionLabel != null && onAction != null) ...[
+          const SizedBox(width: 16),
+          FilledButton.icon(
+            onPressed: onAction,
+            icon: const Icon(Icons.add),
+            label: Text(actionLabel),
+          ),
+        ],
       ],
     ),
   );
