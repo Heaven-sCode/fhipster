@@ -1,0 +1,1 @@
+fhipster --config ./fhipster.config.yaml 
