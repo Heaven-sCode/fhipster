@@ -109,7 +109,7 @@ class ${className} {
       filters: filters,
       distinct: distinct ?? Env.get().distinctByDefault,
     );
-    final res = await _api.get(''\${_base}/count'', query: q);
+    final res = await _api.get('\${_base}/count', query: q);
     if (!res.isOk) _throwHttp(res);
 
     final body = res.body;
@@ -230,7 +230,7 @@ class ${className} {
           ops.forEach((op, val) {
             if (val == null) return;
             final key = '\${field}.\${op}';
-            if (op === 'in' && val is List) {
+            if (op == 'in' && val is List) {
               q[key] = val.map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).join(',');
             } else {
               q[key] = val.toString();

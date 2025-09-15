@@ -188,7 +188,15 @@ function main() {
         writeFile(path.join(dirs.modelsDir, modelF), generateModelTemplate(entityName, fields, enums), force, `models/${modelF}`);
       }
       if (shouldGen('services')) {
-        writeFile(path.join(dirs.servicesDir, serviceF), generateServiceTemplate(entityName, yamlConfig.microservice, devProfile.apiHost), force, `services/${serviceF}`);
+        writeFile(
+          path.join(dirs.servicesDir, serviceF),
+          generateServiceTemplate(entityName, {
+            microserviceName,
+            useGateway: !!devProfile.useGateway,
+          }),
+          force,
+          `services/${serviceF}`
+        );
       }
       if (shouldGen('controllers')) {
         writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums), force, `controllers/${controllerF}`);
