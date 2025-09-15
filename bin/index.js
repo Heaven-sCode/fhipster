@@ -191,7 +191,7 @@ function main() {
         writeFile(
           path.join(dirs.servicesDir, serviceF),
           generateServiceTemplate(entityName, {
-            microserviceName,
+            microserviceName: devProfile.gatewayServiceName || microserviceName,
             useGateway: !!devProfile.useGateway,
           }),
           force,
@@ -353,7 +353,10 @@ function normalizeProfile(pIn, base, hard = {}) {
     httpStrict: valueOrBool(pIn.httpStrict, base.httpStrict),
     pinnedSha256Certs: Array.isArray(pIn.pinnedSha256Certs) ? pIn.pinnedSha256Certs : base.pinnedSha256Certs,
 
-    pluralOverrides: base.pluralOverrides || {},
+    pluralOverrides: {
+      ...(base.pluralOverrides || {}),
+      ...(pIn.pluralOverrides || {}),
+    },
   };
 }
 

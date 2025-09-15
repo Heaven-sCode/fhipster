@@ -46,7 +46,7 @@ function generateTableViewTemplate(entityName, fields) {
       if (n.toLowerCase().includes('date') || n.toLowerCase().includes('time')) {
         return `Text(m.${n} != null ? (m.${n}!.toIso8601String()) : '')`;
       }
-      return `Text(\${m.${n}} == null ? '' : m.${n}.toString())`;
+      return `Text(m.${n} == null ? '' : m.${n}.toString())`;
     }
   });
 
