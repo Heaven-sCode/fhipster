@@ -16,17 +16,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
 
-  // 1) Initialize the baked-in profiles (dev/prod) from generated env.dart
+  // Initialize baked profiles and select one
   Env.initGenerated();
-
-  // 2) Activate selected profile (defaults to 'dev' if invalid)
   try {
     Env.setProfile(_profile);
   } catch (_) {
     Env.setProfile('dev');
   }
 
-  // 3) Core singletons
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
 

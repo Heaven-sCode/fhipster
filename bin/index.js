@@ -2,16 +2,9 @@
 
 /**
  * FHipster CLI (profiles-aware)
- * JDL → Flutter (GetX) lib/ generator
- *
- * - Reads YAML config (supports profiles.dev & profiles.prod)
- * - Bakes both profiles into env.dart (Env.initGenerated + Env.setProfile)
- * - Optional: emits a minimal main.dart
- * - Generates core, auth, widgets, enums, entities (models/services/controllers/forms/views), routes
- *
- * Usage:
- *   fhipster --config ./fhipster.config.yaml [-f]
- *   fhipster <jdlFile> --microservice <name> [options]
+ * - Preserves keep regions (see utils/file_writer.js)
+ * - Partial generation: --only (entities), --skipParts=services,forms,views,models,enums,core,widgets,routes,main
+ * - Emits main.dart when emitMain is true (YAML wins unless CLI explicitly sets it)
  */
 
 const fs = require('fs');
@@ -51,7 +44,7 @@ const { generateForbiddenViewTemplate } = require('../generators/forbidden_view_
 const { generateMainDartTemplate } = require('../generators/main_dart_generator');
 
 // ---- Parser / Utils ----
-const { parseJdl } = require('../parser'); // ../parser/index.js
+const { parseJdl } = require('../parser');
 const {
   entityFileBase,
   entityClassName,
@@ -67,64 +60,29 @@ const {
 } = require('../utils/naming');
 const { writeFile } = require('../utils/file_writer');
 
-// ------------------------------------------------------------
-
 function main() {
   const argv = yargs(hideBin(process.argv))
     .usage('Usage: $0 <jdlFile> --microservice <name> [options]')
-    .option('config', {
-      alias: 'c',
-      type: 'string',
-      describe: 'Path to YAML config (CLI flags override YAML)',
-    })
-    .option('microservice', {
-      alias: 'm',
-      type: 'string',
-      describe: 'Microservice short name (e.g., dms)',
-    })
-    .option('apiHost', {
-      alias: 'a',
-      type: 'string',
-      describe: 'Base host for the API (e.g., http://localhost:8080)',
-    })
-    .option('useGateway', {
-      type: 'boolean',
-      describe: 'Use JHipster gateway paths (/services/<svc>/api/**)',
-    })
-    .option('gatewayServiceName', {
-      type: 'string',
-      describe: 'Gateway service name (e.g., dms). Used if --useGateway is true',
-    })
-    .option('outputDir', {
-      alias: 'o',
-      type: 'string',
-      describe: 'Output directory (copy/point this to your Flutter project’s lib/)',
-    })
-    .option('includeAuthGuards', {
-      type: 'boolean',
-      describe: 'Attach AuthMiddleware/RoleMiddleware to secured routes',
-      default: undefined,
-    })
-    .option('emitMain', {
-      type: 'boolean',
-      default: true,
-      describe: 'Also generate lib/main.dart populated from config (profiles-aware)',
-    })
-    .option('force', {
-      alias: 'f',
-      type: 'boolean',
-      default: false,
-      describe: 'Overwrite existing files without prompting',
-    })
+    .option('config', { alias: 'c', type: 'string', describe: 'Path to YAML config (CLI overrides YAML)' })
+    .option('microservice', { alias: 'm', type: 'string', describe: 'Microservice short name (e.g., dms)' })
+    .option('apiHost', { alias: 'a', type: 'string', describe: 'Base host for the API (e.g., http://localhost:8080)' })
+    .option('useGateway', { type: 'boolean', describe: 'Use JHipster gateway paths (/services/<svc>/api/**)' })
+    .option('gatewayServiceName', { type: 'string', describe: 'Gateway service name (used if --useGateway)' })
+    .option('outputDir', { alias: 'o', type: 'string', describe: 'Output directory (usually your Flutter lib/)' })
+    .option('includeAuthGuards', { type: 'boolean', describe: 'Attach AuthMiddleware/RoleMiddleware to routes' })
+    .option('emitMain', { type: 'boolean', describe: 'Also generate lib/main.dart (profiles-aware)' })
+    .option('only', { type: 'string', describe: 'Only generate these entities (comma-separated)' })
+    .option('skipParts', { type: 'string', describe: 'Skip parts: models,services,controllers,forms,views,enums,core,widgets,routes,main' })
+    .option('force', { alias: 'f', type: 'boolean', default: false, describe: 'Overwrite existing files' })
     .help('h').alias('h', 'help')
     .version().alias('v', 'version')
     .epilog('FHipster — JDL → Flutter (GetX) generator')
     .argv;
 
-  // 1) Load YAML if provided or auto-detected
+  // YAML
   const yamlConfig = loadYamlConfig(argv.config);
 
-  // 2) Resolve inputs (CLI > YAML > defaults)
+  // Inputs
   const jdlFilePath = resolveJdlPath(argv._[0] || yamlConfig.jdlFile);
   const outputDir = path.resolve(process.cwd(), argv.outputDir || yamlConfig.outputDir || 'flutter_generated');
 
@@ -134,11 +92,22 @@ function main() {
     process.exit(1);
   }
 
-  const includeAuthGuards = pickBool(argv.includeAuthGuards, yamlConfig.includeAuthGuards, true);
-  const emitMain = pickBool(argv.emitMain, yamlConfig.emitMain, false);
+  // Precedence: YAML wins when CLI not explicitly set
+  const includeAuthGuards = argv.includeAuthGuards !== undefined ? argv.includeAuthGuards
+                           : (yamlConfig.includeAuthGuards ?? true);
+  const emitMain = argv.emitMain !== undefined ? argv.emitMain
+                  : (yamlConfig.emitMain ?? false);
+
   const force = !!argv.force;
 
-  // Build profiles (dev & prod) from YAML (with top-level fallbacks & optional CLI overrides)
+  // Partial gen flags
+  const onlyEntities = parseCsv(argv.only || yamlConfig.only);
+  const skipParts = new Set(parseCsv(argv.skipParts || yamlConfig.skipParts));
+  const shouldGen = (part) => !skipParts.has(part);
+  const entityAllowed = (name) =>
+    !onlyEntities.length || onlyEntities.map(s => s.toLowerCase()).includes(String(name).toLowerCase());
+
+  // Build profiles from YAML
   const { devProfile, prodProfile } = buildProfilesFromYaml(yamlConfig, argv);
 
   if (!fs.existsSync(jdlFilePath)) {
@@ -149,58 +118,51 @@ function main() {
   // Parse JDL
   const jdlContent = fs.readFileSync(jdlFilePath, 'utf8');
   const { entities, enums, pluralOverrides: fromJdlPlural = {} } = parseJdl(jdlContent);
-  // Merge plural overrides into each profile (favor YAML explicit map)
   devProfile.pluralOverrides = { ...(fromJdlPlural || {}), ...(devProfile.pluralOverrides || {}) };
   prodProfile.pluralOverrides = { ...(fromJdlPlural || {}), ...(prodProfile.pluralOverrides || {}) };
 
-  // Directories (under lib/)
+  // Dirs
   const dirs = resolveDirs(outputDir);
   ensureDirs(dirs);
 
-  // A friendly header with summary
+  // Header
   console.log(`\n📦 Output: '${outputDir}'`);
   console.log(`🔧 Microservice: '${microserviceName}'`);
-  console.log(`🧩 Profiles: dev → ${devProfile.apiHost} | prod → ${prodProfile.apiHost}`);
-  if (devProfile.useGateway) {
-    console.log(`🧭 Gateway mode (dev): ON (service: ${devProfile.gatewayServiceName || '(unset)'})`);
+  console.log(`🧩 Profiles: dev → ${devProfile.apiHost} | prod → ${prodProfile.apiHost}\n`);
+
+  // Core / Env / Auth
+  if (shouldGen('core')) {
+    console.log('• Generating core/env/auth ...');
+
+    writeFile(
+      path.join(dirs.coreDir, 'env', 'env.dart'),
+      generateEnvTemplate({ devProfile, prodProfile }),
+      force,
+      'core/env/env.dart'
+    );
+
+    writeFile(path.join(dirs.coreDir, 'api_client.dart'), generateApiClientTemplate(), force, 'core/api_client.dart');
+    writeFile(path.join(dirs.coreAuthDir, 'auth_service.dart'), generateAuthServiceTemplate(), force, 'core/auth/auth_service.dart');
+    writeFile(path.join(dirs.coreAuthDir, 'auth_middleware.dart'), generateAuthMiddlewareTemplate(), force, 'core/auth/auth_middleware.dart');
+    writeFile(path.join(dirs.coreAuthDir, 'role_middleware.dart'), generateRoleMiddlewareTemplate(), force, 'core/auth/role_middleware.dart');
+    writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
+
+    writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
   }
-  if (prodProfile.useGateway) {
-    console.log(`🧭 Gateway mode (prod): ON (service: ${prodProfile.gatewayServiceName || '(unset)'})`);
+
+  // Widgets
+  if (shouldGen('widgets')) {
+    console.log('• Generating common widgets ...');
+    writeFile(path.join(dirs.widgetsDir, 'fhipster_input_field.dart'), generateFHipsterInputFieldTemplate(), force, 'widgets/fhipster_input_field.dart');
+
+    const tableWidgetFiles = generateTableWidgetsTemplates();
+    Object.entries(tableWidgetFiles).forEach(([relPath, content]) => {
+      writeFile(path.join(dirs.widgetsDir, relPath), content, force, path.join('widgets', relPath));
+    });
   }
-  console.log('');
 
-  // ---------------- Core / Env / Auth ----------------
-  console.log('• Generating core/env/auth ...');
-
-  // Env (bakes both profiles; main can Env.setProfile('dev'|'prod'))
-  writeFile(
-    path.join(dirs.coreDir, 'env', 'env.dart'),
-    generateEnvTemplate({ devProfile, prodProfile }),
-    force,
-    'core/env/env.dart'
-  );
-
-  writeFile(path.join(dirs.coreDir, 'api_client.dart'), generateApiClientTemplate(), force, 'core/api_client.dart');
-  writeFile(path.join(dirs.coreAuthDir, 'auth_service.dart'), generateAuthServiceTemplate(), force, 'core/auth/auth_service.dart');
-  writeFile(path.join(dirs.coreAuthDir, 'auth_middleware.dart'), generateAuthMiddlewareTemplate(), force, 'core/auth/auth_middleware.dart');
-  writeFile(path.join(dirs.coreAuthDir, 'role_middleware.dart'), generateRoleMiddlewareTemplate(), force, 'core/auth/role_middleware.dart');
-  writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
-
-  // App shell
-  console.log('• Generating app shell & routes ...');
-  writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
-
-  // ---------------- Common Widgets ----------------
-  console.log('• Generating common widgets ...');
-  writeFile(path.join(dirs.widgetsDir, 'fhipster_input_field.dart'), generateFHipsterInputFieldTemplate(), force, 'widgets/fhipster_input_field.dart');
-
-  const tableWidgetFiles = generateTableWidgetsTemplates();
-  Object.entries(tableWidgetFiles).forEach(([relPath, content]) => {
-    writeFile(path.join(dirs.widgetsDir, relPath), content, force, path.join('widgets', relPath));
-  });
-
-  // ---------------- Enums ----------------
-  if (enums && Object.keys(enums).length > 0) {
+  // Enums
+  if (shouldGen('enums') && enums && Object.keys(enums).length > 0) {
     console.log('• Generating enums ...');
     for (const [enumName, values] of Object.entries(enums)) {
       const eFile = enumFileName(enumName);
@@ -208,62 +170,36 @@ function main() {
     }
   }
 
-  // ---------------- Per-entity generation ----------------
+  // Entities
   console.log('• Generating entities (models/services/controllers/forms/views) ...');
 
-  /** Build route registrations */
   const entityRoutes = [];
-
   if (entities) {
     for (const [entityName, fields] of Object.entries(entities)) {
-      const fileBase = entityFileBase(entityName); // camel base for file names
+      if (!entityAllowed(entityName)) continue;
+
       const modelF = modelFileName(entityName);
       const serviceF = serviceFileName(entityName);
       const controllerF = controllerFileName(entityName);
       const formF = formFileName(entityName);
       const viewF = tableViewFileName(entityName);
 
-      // Models
-      writeFile(
-        path.join(dirs.modelsDir, modelF),
-        generateModelTemplate(entityName, fields, enums),
-        force,
-        `models/${modelF}`
-      );
+      if (shouldGen('models')) {
+        writeFile(path.join(dirs.modelsDir, modelF), generateModelTemplate(entityName, fields, enums), force, `models/${modelF}`);
+      }
+      if (shouldGen('services')) {
+        writeFile(path.join(dirs.servicesDir, serviceF), generateServiceTemplate(entityName, yamlConfig.microservice, devProfile.apiHost), force, `services/${serviceF}`);
+      }
+      if (shouldGen('controllers')) {
+        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums), force, `controllers/${controllerF}`);
+      }
+      if (shouldGen('forms')) {
+        writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums), force, `forms/${formF}`);
+      }
+      if (shouldGen('views')) {
+        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields), force, `views/${viewF}`);
+      }
 
-      // Services (template uses Env.apiBasePath; microservice name is passed)
-      writeFile(
-        path.join(dirs.servicesDir, serviceF),
-        generateServiceTemplate(entityName, microserviceName, devProfile.apiHost),
-        force,
-        `services/${serviceF}`
-      );
-
-      // Controllers
-      writeFile(
-        path.join(dirs.controllersDir, controllerF),
-        generateEntityControllerTemplate(entityName, fields, enums),
-        force,
-        `controllers/${controllerF}`
-      );
-
-      // Forms
-      writeFile(
-        path.join(dirs.formsDir, formF),
-        generateFormTemplate(entityName, fields, enums),
-        force,
-        `forms/${formF}`
-      );
-
-      // Table view
-      writeFile(
-        path.join(dirs.viewsDir, viewF),
-        generateTableViewTemplate(entityName, fields),
-        force,
-        `views/${viewF}`
-      );
-
-      // Route path (plural, lowercase; allow overrides)
       const pluralPathSeg = resourcePlural(entityName, devProfile.pluralOverrides || {});
       entityRoutes.push({
         path: `/${pluralPathSeg}`,
@@ -271,75 +207,70 @@ function main() {
         viewFile: viewF,
         controllerClass: controllerClassName(entityName),
         viewClass: tableViewClassName(entityName),
-        roles: [], // add per-entity roles if desired
+        roles: [],
       });
     }
   }
 
-  // ---------------- Static screens ----------------
-  console.log('• Generating static views/controllers ...');
+  // Static screens
+  if (shouldGen('views') || shouldGen('controllers')) {
+    console.log('• Generating static views/controllers ...');
 
-  writeFile(path.join(dirs.controllersDir, 'splash_controller.dart'), generateSplashControllerTemplate(), force, 'controllers/splash_controller.dart');
-  writeFile(path.join(dirs.viewsDir, 'splash_view.dart'), generateSplashViewTemplate(), force, 'views/splash_view.dart');
-
-  writeFile(path.join(dirs.controllersDir, 'login_controller.dart'), generateLoginControllerTemplate(), force, 'controllers/login_controller.dart');
-  writeFile(path.join(dirs.viewsDir, 'login_view.dart'), generateLoginViewTemplate(), force, 'views/login_view.dart');
-
-  writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(), force, 'views/home_view.dart');
-  writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
-  writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
+    if (shouldGen('controllers')) {
+      writeFile(path.join(dirs.controllersDir, 'splash_controller.dart'), generateSplashControllerTemplate(), force, 'controllers/splash_controller.dart');
+      writeFile(path.join(dirs.controllersDir, 'login_controller.dart'), generateLoginControllerTemplate(), force, 'controllers/login_controller.dart');
+    }
+    if (shouldGen('views')) {
+      writeFile(path.join(dirs.viewsDir, 'splash_view.dart'), generateSplashViewTemplate(), force, 'views/splash_view.dart');
+      writeFile(path.join(dirs.viewsDir, 'login_view.dart'), generateLoginViewTemplate(), force, 'views/login_view.dart');
+      writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(), force, 'views/home_view.dart');
+      writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
+      writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
+    }
+  }
 
   // Routes
-  writeFile(
-    path.join(dirs.coreDir, 'routes.dart'),
-    generateRoutesTemplate({ entityRoutes, includeAuthGuards }),
-    force,
-    'core/routes.dart'
-  );
-
-  // Optional: emit main.dart (profiles-aware, simple switch)
-  if (emitMain) {
+  if (shouldGen('routes')) {
     writeFile(
-      path.join(dirs.libDir, 'main.dart'),
-      generateMainDartTemplate(), // minimal main uses Env.initGenerated() & Env.setProfile()
+      path.join(dirs.coreDir, 'routes.dart'),
+      generateRoutesTemplate({ entityRoutes, includeAuthGuards }),
       force,
-      'main.dart'
+      'core/routes.dart'
     );
   }
 
-  // ---------------- Done ----------------
+  // main.dart
+  if (emitMain && shouldGen('main')) {
+    console.log('• Generating main.dart ...');
+    writeFile(path.join(dirs.libDir, 'main.dart'), generateMainDartTemplate(), force, 'main.dart');
+  }
+
   console.log('\n✅ Generation complete!');
-  console.log('Next steps:');
-  console.log("1) In your Flutter app's main.dart (if not emitted):  Env.initGenerated(); Env.setProfile('dev');");
-  console.log("   Or run with:  flutter run -t lib/main.dart --dart-define=ENV=prod");
-  console.log("2) Ensure Flutter deps:  flutter pub add get get_storage responsive_grid");
-  console.log("3) Set initialRoute to AppRoutes.splash and use GetMaterialApp with AppRoutes.pages.");
-  console.log(`4) Copy '${outputDir}' into your Flutter project's 'lib' (or generate directly to ./lib).`);
+  console.log("Next steps:");
+  console.log("1) In Flutter: flutter pub add get get_storage responsive_grid");
+  console.log("   (Optional security) flutter pub add flutter_secure_storage crypto");
+  console.log("2) Run app: flutter run -t lib/main.dart --dart-define=ENV=dev");
+  console.log(`3) Generated at: '${outputDir}'`);
 }
 
-// ------------------------------------------------------------
-// Profiles builder from YAML
+// ---------- Profiles ----------
 
 function buildProfilesFromYaml(yamlConfig, argv) {
-  // Top-level defaults used as fallbacks:
-  const commonDefaults = {
+  const base = {
     appName: yamlConfig.appName ?? 'FHipster',
     envName: yamlConfig.envName ?? 'dev',
-
     apiHost: yamlConfig.apiHost ?? 'http://localhost:8080',
     useGateway: yamlConfig.useGateway ?? false,
     gatewayServiceName: yamlConfig.gatewayServiceName ?? null,
 
     auth: yamlConfig.auth || { provider: 'keycloak', keycloak: {} },
 
-    // Paging / sorting
     defaultPageSize: yamlConfig.defaultPageSize ?? 20,
     pageSizeOptions: yamlConfig.pageSizeOptions || [10, 20, 50, 100],
     defaultSort: yamlConfig.defaultSort || ['id,desc'],
     defaultSearchSort: yamlConfig.defaultSearchSort || ['_score,desc'],
     distinctByDefault: yamlConfig.distinctByDefault ?? false,
 
-    // Headers / storage
     totalCountHeaderName: yamlConfig.totalCountHeaderName || 'X-Total-Count',
     storageKeyAccessToken: yamlConfig.storageKeyAccessToken || 'fh_access_token',
     storageKeyAccessExpiry: yamlConfig.storageKeyAccessExpiry || 'fh_access_expiry',
@@ -348,56 +279,53 @@ function buildProfilesFromYaml(yamlConfig, argv) {
     storageKeyRememberedUsername: yamlConfig.storageKeyRememberedUsername || 'fh_remembered_username',
 
     relationshipPayloadMode: yamlConfig.relationshipPayloadMode || 'idOnly',
+
+    // Security options
+    storageMode: yamlConfig.storageMode || 'get_storage',
+    httpStrict: yamlConfig.httpStrict ?? false,
+    pinnedSha256Certs: yamlConfig.pinnedSha256Certs || [],
+
     pluralOverrides: yamlConfig.pluralOverrides || {},
   };
 
-  // CLI overrides for quick tweaks (optional)
-  if (argv.apiHost) commonDefaults.apiHost = argv.apiHost;
-  if (typeof argv.useGateway === 'boolean') commonDefaults.useGateway = argv.useGateway;
-  if (argv.gatewayServiceName) commonDefaults.gatewayServiceName = argv.gatewayServiceName;
+  // CLI quick overrides
+  if (argv.apiHost) base.apiHost = argv.apiHost;
+  if (typeof argv.useGateway === 'boolean') base.useGateway = argv.useGateway;
+  if (argv.gatewayServiceName) base.gatewayServiceName = argv.gatewayServiceName;
 
-  const profilesYaml = yamlConfig.profiles || {};
-  const devIn = profilesYaml.dev || {};
-  const prodIn = profilesYaml.prod || {};
+  const devIn = (yamlConfig.profiles || {}).dev || {};
+  const prodIn = (yamlConfig.profiles || {}).prod || {};
 
-  const dev = normalizeProfile(devIn, commonDefaults);
-  const prod = normalizeProfile(prodIn, commonDefaults, { envName: 'prod', appName: commonDefaults.appName });
+  const dev = normalizeProfile(devIn, base);
+  const prod = normalizeProfile(prodIn, base, { envName: 'prod', appName: base.appName });
 
   return { devProfile: dev, prodProfile: prod };
 }
 
-function normalizeProfile(pIn, base, hardOverrides = {}) {
+function normalizeProfile(pIn, base, hard = {}) {
   const authIn = pIn.auth || base.auth || {};
   const kcIn = authIn.keycloak || {};
 
   return {
-    // identity/network
-    appName: valueOr(pIn.appName, base.appName, hardOverrides.appName),
-    envName: valueOr(pIn.envName, base.envName, hardOverrides.envName),
+    appName: valueOr(pIn.appName, base.appName, hard.appName),
+    envName: valueOr(pIn.envName, base.envName, hard.envName),
     apiHost: valueOr(pIn.apiHost, base.apiHost),
     useGateway: valueOrBool(pIn.useGateway, base.useGateway),
     gatewayServiceName: valueOr(pIn.gatewayServiceName, base.gatewayServiceName),
 
-    // auth
     authProvider: authIn.provider || base.auth.provider || 'keycloak',
-
-    // JWT
     jwtAuthEndpoint: authIn.jwtAuthEndpoint || '/api/authenticate',
     accountEndpoint: authIn.accountEndpoint || '/api/account',
     allowCredentialCacheForJwt: valueOrBool(authIn.allowCredentialCacheForJwt, false),
 
-    // Keycloak
     keycloakTokenEndpoint: kcIn.tokenEndpoint || null,
     keycloakLogoutEndpoint: kcIn.logoutEndpoint || null,
     keycloakAuthorizeEndpoint: kcIn.authorizeEndpoint || null,
     keycloakUserinfoEndpoint: kcIn.userinfoEndpoint || null,
     keycloakClientId: kcIn.clientId || null,
     keycloakClientSecret: kcIn.clientSecret || null,
-    keycloakScopes: Array.isArray(kcIn.scopes) && kcIn.scopes.length > 0
-      ? kcIn.scopes
-      : ['openid', 'profile', 'email', 'offline_access'],
+    keycloakScopes: Array.isArray(kcIn.scopes) && kcIn.scopes.length > 0 ? kcIn.scopes : ['openid','profile','email','offline_access'],
 
-    // paging/sorting & keys
     defaultPageSize: valueOrNum(pIn.defaultPageSize, base.defaultPageSize),
     pageSizeOptions: Array.isArray(pIn.pageSizeOptions) ? pIn.pageSizeOptions : base.pageSizeOptions,
     defaultSort: Array.isArray(pIn.defaultSort) ? pIn.defaultSort : base.defaultSort,
@@ -412,15 +340,19 @@ function normalizeProfile(pIn, base, hardOverrides = {}) {
     storageKeyRememberedUsername: valueOr(pIn.storageKeyRememberedUsername, base.storageKeyRememberedUsername),
 
     relationshipPayloadMode: valueOr(pIn.relationshipPayloadMode, base.relationshipPayloadMode),
+
+    storageMode: valueOr(pIn.storageMode, base.storageMode),
+    httpStrict: valueOrBool(pIn.httpStrict, base.httpStrict),
+    pinnedSha256Certs: Array.isArray(pIn.pinnedSha256Certs) ? pIn.pinnedSha256Certs : base.pinnedSha256Certs,
+
     pluralOverrides: base.pluralOverrides || {},
   };
 }
 
-// ------------------------------------------------------------
-// FS & YAML helpers
+// ---------- YAML / FS helpers ----------
 
 function resolveDirs(rootOut) {
-  const libDir = rootOut; // generate a lib/ tree (user may pass ./lib)
+  const libDir = rootOut;
   return {
     libDir,
     coreDir: path.join(libDir, 'core'),
@@ -481,17 +413,14 @@ function loadYamlConfig(providedPath) {
 }
 
 function normalizeYaml(data) {
-  // Accept either flat keys or nested under "project"
   const root = { ...(data || {}) };
   const proj = root.project || {};
 
-  // Direct passthrough of new schema fields (profiles supported)
   return {
     jdlFile: root.jdlFile || proj.jdlFile,
     outputDir: root.outputDir || proj.outputDir,
     microservice: root.microservice || proj.microservice,
 
-    // Common defaults
     appName: root.appName || proj.appName,
     envName: root.envName || proj.envName,
     includeAuthGuards: pickBool(root.includeAuthGuards, proj.includeAuthGuards, undefined),
@@ -501,10 +430,8 @@ function normalizeYaml(data) {
     useGateway: pickBool(root.useGateway, proj.useGateway, undefined),
     gatewayServiceName: root.gatewayServiceName || proj.gatewayServiceName,
 
-    // Auth (legacy single-profile style)
     auth: root.auth || proj.auth,
 
-    // Optional defaults
     defaultPageSize: root.defaultPageSize ?? proj.defaultPageSize,
     pageSizeOptions: root.pageSizeOptions || proj.pageSizeOptions,
     defaultSort: root.defaultSort || proj.defaultSort,
@@ -520,26 +447,28 @@ function normalizeYaml(data) {
 
     relationshipPayloadMode: root.relationshipPayloadMode || proj.relationshipPayloadMode,
 
+    storageMode: root.storageMode || proj.storageMode,
+    httpStrict: pickBool(root.httpStrict, proj.httpStrict, undefined),
+    pinnedSha256Certs: root.pinnedSha256Certs || proj.pinnedSha256Certs,
+
     pluralOverrides: root.pluralOverrides || proj.pluralOverrides || {},
 
-    // New: profiles block
     profiles: root.profiles || proj.profiles || {},
+
+    // Optional passthroughs for partial gen
+    only: root.only || proj.only,
+    skipParts: root.skipParts || proj.skipParts,
   };
 }
 
 function pick(...vals) {
-  for (const v of vals) {
-    if (v !== undefined && v !== null) return v;
-  }
+  for (const v of vals) if (v !== undefined && v !== null) return v;
   return undefined;
 }
 function pickBool(...vals) {
-  for (const v of vals) {
-    if (v === true || v === false) return v;
-  }
+  for (const v of vals) if (v === true || v === false) return v;
   return undefined;
 }
-
 function valueOr(v, fallback, hardOverride) {
   if (hardOverride !== undefined) return hardOverride;
   return v !== undefined ? v : fallback;
@@ -551,7 +480,10 @@ function valueOrNum(v, fallback) {
   const n = Number(v);
   return Number.isFinite(n) ? n : Number(fallback);
 }
-
+function parseCsv(s) {
+  if (!s) return [];
+  return String(s).split(',').map(x => x.trim()).filter(Boolean);
+}
 function resolveJdlPath(jdlFromArgOrYaml) {
   if (!jdlFromArgOrYaml) {
     console.error('❌ Missing JDL file path (provide as first arg or set jdlFile in YAML).');

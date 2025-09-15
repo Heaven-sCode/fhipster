@@ -1,169 +1,107 @@
 // utils/file_writer.js
-// Safe, repeatable file writing helpers for the FHipster generator.
-// - Ensures parent directories exist
-// - Normalizes EOLs to '\n' and (optionally) appends a trailing newline
-// - Skips overwriting unchanged files (hash/byte-compare) unless forced
-// - Can skip overwriting existing files unless --force
-// - Supports dry-run mode
-// - Provides safeJoin() to keep outputs inside a base directory
+// Writes files with support for "keep" regions that survive regeneration.
+//
+// Keep region syntax (in any language):
+//   // <fh:keep:imports>
+//   // ...user code...
+//   // </fh:keep:imports>
+//
+//   // <fh:keep:custom>
+//   // ...user code...
+//   // </fh:keep:custom>
+//
+// Regions are matched by name and replaced in the new content.
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-/**
- * Create a directory (and parents) if missing.
- * @param {string} dir
- */
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
+const KEEP_START_RE = /\/\/\s*<fh:keep:([a-zA-Z0-9_-]+)>\s*[\r\n]?/g;
+const KEEP_END_TAG = '// </fh:keep:';
+const KEEP_END_RE = /\/\/\s*<\/fh:keep:([a-zA-Z0-9_-]+)>\s*[\r\n]?/g;
+
+function sha(content) {
+  return crypto.createHash('md5').update(content || '', 'utf8').digest('hex');
 }
 
-/**
- * Does a path exist?
- * @param {string} p
- * @returns {boolean}
- */
-function pathExists(p) {
+function readIfExists(absPath) {
   try {
-    fs.accessSync(p);
-    return true;
-  } catch {
-    return false;
+    return fs.readFileSync(absPath, 'utf8');
+  } catch (_) {
+    return null;
   }
 }
 
-/**
- * Join paths ensuring the result stays within baseDir (prevents path traversal).
- * @param {string} baseDir absolute or relative base
- * @param {...string} parts path segments to join
- * @returns {string} absolute safe path
- * @throws if target escapes baseDir
- */
-function safeJoin(baseDir, ...parts) {
-  const baseAbs = path.resolve(baseDir);
-  const targetAbs = path.resolve(baseAbs, ...parts);
-  // allow equal dir or child (handle Windows case-insensitively by normalizing)
-  const rel = path.relative(baseAbs, targetAbs);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(`Refusing to write outside base directory:\n  base: ${baseAbs}\n  target: ${targetAbs}`);
+function extractKeepRegions(text) {
+  if (!text) return {};
+  const regions = {};
+  let startMatch;
+  while ((startMatch = KEEP_START_RE.exec(text)) !== null) {
+    const name = startMatch[1];
+    const startIdx = KEEP_START_RE.lastIndex;
+    const endTag = `${KEEP_END_TAG}${name}>`;
+    const endIdx = text.indexOf(endTag, startIdx);
+    if (endIdx === -1) continue; // malformed; skip
+    const body = text.substring(startIdx, endIdx);
+    regions[name] = body;
   }
-  return targetAbs;
+  return regions;
 }
 
-/**
- * Normalize EOLs and optionally add a final newline.
- * @param {string} s
- * @param {boolean} appendFinalNewline
- * @returns {string}
- */
-function normalizeText(s, appendFinalNewline = true) {
-  let out = String(s ?? '').replace(/\r\n/g, '\n');
-  if (appendFinalNewline && out.length && !out.endsWith('\n')) out += '\n';
-  return out;
-}
+function spliceKeepRegions(newContent, oldRegions) {
+  if (!oldRegions || Object.keys(oldRegions).length === 0) return newContent;
 
-/**
- * Hash a string (sha256) for cheap change detection/logging.
- * @param {string} s
- * @returns {string}
- */
-function hashStr(s) {
-  return crypto.createHash('sha256').update(s).digest('hex').slice(0, 12);
-}
+  // Replace bodies between keep tags in new content if the same tag exists
+  return newContent.replace(KEEP_START_RE, (m, name, offset) => {
+    const startIdx = offset + m.length;
+    const endTag = `${KEEP_END_TAG}${name}>`;
+    const endIdx = newContent.indexOf(endTag, startIdx);
+    if (endIdx === -1) return m; // unmatched in template
 
-/**
- * Write a text file safely.
- *
- * @param {string} filePath absolute or relative path
- * @param {string} content file contents
- * @param {object} [opts]
- * @param {boolean} [opts.force=false]       overwrite even if the file exists
- * @param {boolean} [opts.ifUnchangedSkip=true] skip writing when content is identical
- * @param {boolean} [opts.dryRun=false]      don't write, just report what would happen
- * @param {boolean} [opts.appendFinalNewline=true] ensure trailing newline
- * @param {string}  [opts.label]             pretty label for logs
- * @returns {{action: 'wrote'|'skip', reason?: string, path: string}}
- */
-function writeFile(filePath, content, opts = {}) {
-  const {
-    force = false,
-    ifUnchangedSkip = true,
-    dryRun = false,
-    appendFinalNewline = true,
-    label,
-  } = opts;
-
-  const abs = path.resolve(filePath);
-  const dir = path.dirname(abs);
-  ensureDir(dir);
-
-  const next = normalizeText(content, appendFinalNewline);
-
-  // If file exists, decide overwrite behavior
-  if (fs.existsSync(abs)) {
-    const prevRaw = fs.readFileSync(abs, 'utf8');
-    const prev = normalizeText(prevRaw, appendFinalNewline);
-
-    if (ifUnchangedSkip && prev === next) {
-      logSkip(label || abs, `unchanged (sha:${hashStr(prev)})`);
-      return { action: 'skip', reason: 'unchanged', path: abs };
+    if (Object.prototype.hasOwnProperty.call(oldRegions, name)) {
+      const before = newContent.slice(0, startIdx);
+      const after = newContent.slice(endIdx);
+      const rebuilt = before + oldRegions[name] + after;
+      newContent = rebuilt;
     }
-
-    if (!force) {
-      logSkip(label || abs, 'exists (use --force to overwrite)');
-      return { action: 'skip', reason: 'exists', path: abs };
-    }
-  }
-
-  if (!dryRun) {
-    fs.writeFileSync(abs, next, 'utf8');
-  }
-  logWrite(label || abs, next);
-  return { action: 'wrote', path: abs };
+    return m;
+  });
 }
 
 /**
- * Write a JSON file safely (pretty-printed with 2 spaces).
- *
- * @param {string} filePath
- * @param {any} data
- * @param {object} [opts] same as writeFile()
+ * Write a file with optional safe merge of keep regions.
+ * @param {string} absPath absolute path to write
+ * @param {string} content new content (may include keep regions)
+ * @param {boolean} force overwrite if unchanged
+ * @param {string} label pretty label for logs
  */
-function writeJson(filePath, data, opts = {}) {
-  const text = JSON.stringify(data, null, 2) + '\n';
-  return writeFile(filePath, text, opts);
-}
+function writeFile(absPath, content, force = false, label = '') {
+  const existed = fs.existsSync(absPath);
+  const old = readIfExists(absPath);
+  const oldRegions = extractKeepRegions(old);
 
-/**
- * Write many files at once.
- * @param {Array<{path: string, content: string, opts?: object}>} entries
- * @returns {Array<{action: string, path: string}>}
- */
-function writeMany(entries) {
-  const results = [];
-  for (const e of entries) {
-    results.push(writeFile(e.path, e.content, e.opts || {}));
+  let merged = content;
+  if (Object.keys(oldRegions).length > 0) {
+    merged = spliceKeepRegions(content, oldRegions);
   }
-  return results;
+
+  const nextSha = sha(merged);
+  const oldSha = sha(old);
+
+  if (!existed) {
+    fs.mkdirSync(path.dirname(absPath), { recursive: true });
+    fs.writeFileSync(absPath, merged, 'utf8');
+    console.log(`  ✍️  Wrote: ${absPath}  (sha:${nextSha.slice(0, 12)})`);
+    return;
+  }
+
+  if (oldSha === nextSha && !force) {
+    console.log(`  ↩︎  Skipped: ${absPath}  — unchanged (sha:${oldSha.slice(0, 12)})`);
+    return;
+  }
+
+  fs.writeFileSync(absPath, merged, 'utf8');
+  console.log(`  ✍️  Wrote: ${absPath}  (sha:${nextSha.slice(0, 12)})`);
 }
 
-// ----------------- logging -----------------
-
-function logWrite(label, content) {
-  const h = hashStr(content);
-  console.log(`  ✍️  Wrote: ${label}  (sha:${h})`);
-}
-
-function logSkip(label, reason) {
-  console.log(`  ↩︎  Skipped: ${label}  — ${reason}`);
-}
-
-module.exports = {
-  ensureDir,
-  pathExists,
-  safeJoin,
-  writeFile,
-  writeJson,
-  writeMany,
-};
+module.exports = { writeFile };

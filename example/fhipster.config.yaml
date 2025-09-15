@@ -43,6 +43,10 @@ profiles:
     appName: Operations (DEV)
     envName: dev
 
+    storageMode: secure_storage   # or get_storage (default)
+    httpStrict: true              # require HTTPS
+    pinnedSha256Certs: []         # ['ab12cd...'] to enable pinning
+
     auth:
       provider: keycloak  # keycloak | jhipsterJwt
       # For Keycloak:
@@ -65,6 +69,11 @@ profiles:
     gatewayServiceName: operationsModule
     appName: Operations
     envName: prod
+
+    storageMode: secure_storage   # or get_storage (default)
+    httpStrict: true              # require HTTPS
+    pinnedSha256Certs: []         # ['ab12cd...'] to enable pinning
+
 
     auth:
       provider: keycloak
