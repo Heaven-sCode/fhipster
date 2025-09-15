@@ -4,34 +4,38 @@
 
 ## 🚀 JDL → Flutter (GetX) Generator
 
-**FHipster** turns your JHipster Domain Language (JDL) into a production-ready **Flutter `lib/`** with:
+**FHipster** turns your JHipster Domain Language (JDL) into a production-ready **Flutter `lib/`** with all the bells & whistles:
 
 - ✅ GetX-first architecture (stateless views, controller-owned state)
-- ✅ **Dual auth**: Keycloak OIDC *or* JHipster JWT (select via flag)
-- ✅ Clean App Shell for web & mobile (NavigationRail/Drawer)
+- ✅ **Dual auth**: Keycloak (OIDC) *or* JHipster JWT
+- ✅ **Profiles** baked into `env.dart` (`dev` & `prod`) + `Env.setProfile('...')`
+- ✅ Optional `main.dart` emission from config (`emitMain: true`)
+- ✅ Clean **App Shell** for web & mobile (NavigationRail/Drawer)
 - ✅ Models, Services, Controllers, Forms, Table views
-- ✅ JPA criteria filtering + Elasticsearch search
+- ✅ **JPA criteria filtering** + **Elasticsearch search**
 - ✅ Relationship-aware models & forms (O2O / M2O / O2M / M2M)
 - ✅ Responsive forms with `responsive_grid`
 - ✅ Route guards (auth + role-based)
 - ✅ Reusable widgets (inputs, table toolbar, pagination)
+- ✅ **Non-destructive writes**: unchanged files are **skipped**; use `--force` to overwrite
 
 ---
 
 ## ✨ What gets generated
 
 - **Core**
-  - `core/env/env.dart` — self-contained environment (`Env.initGenerated()` or `Env.init(...)`)
-  - `core/api_client.dart` — GetConnect; **Keycloak token/refresh** or **JWT bearer**
+  - `core/env/env.dart` — profiles (`dev` & `prod`) and all runtime config
+  - `core/api_client.dart` — GetConnect; injects `Authorization`, 401 auto-refresh
   - `core/auth/*` — `AuthService`, `AuthMiddleware`, `RoleMiddleware`, `token_decoder.dart`
   - `core/app_shell.dart` — responsive shell (web & mobile)
   - `core/routes.dart` — GetX routes (Splash, Login, Home, 401, 403, + per-entity)
+  - *(optional)* `main.dart` — if `emitMain: true` in your config
 
 - **Per entity** (from your JDL)
   - `models/<entity>_model.dart` — primitives + relationship fields
   - `services/<entity>_service.dart` — `GET/LIST/POST/PUT/PATCH/DELETE`, criteria, search
   - `controllers/<entity>_controller.dart` — list+form state, CRUD, relation loaders
-  - `forms/<entity>_form.dart` — stateless GetView, responsive fields & validation
+  - `forms/<entity>_form.dart` — stateless `GetView`, responsive fields & validation
   - `views/<entity>_table_view.dart` — search, pagination, horizontal table, view/edit/delete dialogs
 
 - **Enums**
@@ -40,12 +44,12 @@
 - **Common widgets**
   - `widgets/fhipster_input_field.dart`
   - `widgets/table/` search field, pagination bar, toolbar
-  - `widgets/common/confirm_dialog.dart` (simple Yes/No)
+  - `widgets/common/confirm_dialog.dart`
 
 > Relationships follow JHipster semantics:
 > - O2O/M2O → single `TargetModel?`
 > - O2M/M2M → `List<TargetModel>?`
-> - Form inputs render dropdowns (single) or chip multi-select (multi)
+> - Forms render dropdowns (single) or chip multi-select (multi)
 
 ---
 
@@ -54,6 +58,7 @@
 ```bash
 npm install -g fhipster
 ```
+
 > Requires Node 16+.
 
 ---
@@ -61,16 +66,18 @@ npm install -g fhipster
 ## 🔧 CLI Usage
 
 ```bash
-fhipster <jdl-file> --microservice <name> [--apiHost <host>] [outputDir]
+fhipster <jdl-file> --microservice <name> [options]
 ```
 
 **Core flags**
 
 - `-m, --microservice` **(required)**: service name (e.g. `dms`)
-- `-a, --apiHost` *(optional)*: base API host (default: `http://localhost:8080`)
-- `outputDir` *(optional positional)*: output folder (default: `flutter_generated`). Use `./lib` to generate directly into your app.
-- `--useGateway` *(optional)*: use JHipster API Gateway paths (`/services/<name>/api/**`)
-- `--gatewayServiceName` *(optional)*: default gateway service when `--useGateway`
+- `-o, --outputDir` *(default: `flutter_generated`)* — use `./lib` to generate straight into your app
+- `-a, --apiHost` *(default: `http://localhost:8080`)*
+- `--useGateway` — use JHipster API Gateway paths (`/services/<svc>/api/**`)
+- `--gatewayServiceName <name>` — service id for gateway paths
+- `--force, -f` — **overwrite all** generated files even if unchanged  
+  *(by default, FHipster compares content and **skips** writing if identical)*
 
 **Auth flags (dual auth)**
 
@@ -78,24 +85,23 @@ fhipster <jdl-file> --microservice <name> [--apiHost <host>] [outputDir]
 - `--jwtAuthEndpoint` : JWT login endpoint (default: `/api/authenticate`)
 - `--accountEndpoint` : JWT account/identity endpoint (default: `/api/account`)
 
+**Profiles & main**
+
+- YAML `profiles.dev` & `profiles.prod` → baked into `env.dart`
+- `--emitMain` or `emitMain: true` in YAML → generates `lib/main.dart`
+
 **Examples**
 
 ```bash
-# Generate into a new folder
-fhipster ./application.jdl -m blog -a http://localhost:8080
+# With YAML (recommended)
+fhipster --config ./fhipster.config.yaml
 
-# Generate directly into your Flutter app's lib/
-cd my_flutter_app
-fhipster ../specs/app.jdl -m dms -a https://api.example.com ./lib
+# CLI only
+fhipster ./JDL/app.jdl   --microservice operationsModule   --apiHost http://234.50.81.155:8080   --useGateway --gatewayServiceName operationsModule   --outputDir ./lib   --emitMain
 
-# Generate for JHipster JWT backend
-fhipster ./app.jdl -m store -a https://api.myapp.com   --authProvider jhipsterJwt   --jwtAuthEndpoint /api/authenticate   --accountEndpoint /api/account   ./lib
-
-# Generate for Keycloak + Gateway
-fhipster ./app.jdl -m billing -a https://gateway.example.com   --useGateway --gatewayServiceName billing ./lib
+# JWT backend
+fhipster ./app.jdl -m store -a https://api.example.com   --authProvider jhipsterJwt   --jwtAuthEndpoint /api/authenticate   --accountEndpoint /api/account   ./lib
 ```
-
-Run `fhipster --help` for all options.
 
 ---
 
@@ -139,41 +145,109 @@ lib/
       fhipster_search_field.dart
       fhipster_pagination_bar.dart
       fhipster_table_toolbar.dart
+
+# (optional when emitMain: true)
+main.dart
 ```
 
 ---
 
-## 📦 Required packages (`pubspec.yaml`)
+## 🔐 Storage & Security
 
-Add these to your Flutter project:
+### Token storage (default)
+- Uses **`get_storage`** for access/refresh tokens and expiry timestamps.
+- Keys are configurable in `env.dart` (`storageKeyAccessToken`, etc).
 
-```yaml
-dependencies:
-  flutter:
-    sdk: flutter
+### Optional: secure storage
+If your security model requires OS‑level encryption at rest, switch to **`flutter_secure_storage`** inside `AuthService` (drop-in replacement for the read/write methods).
 
-  # State mgmt, routing & HTTP client (GetConnect)
-  get: any
-
-  # Local storage for tokens/session
-  get_storage: any
-
-  # Responsive form/grid layout for web & mobile
-  responsive_grid: any
+Add the package:
+```bash
+flutter pub add flutter_secure_storage
 ```
 
-Install quickly:
+Then modify `AuthService` where indicated by comments to use `FlutterSecureStorage` instead of `GetStorage`.  
+> This change is local to `AuthService` and does not affect the rest of the generated code.
+
+### HTTPS & certificate pinning (optional)
+If you need certificate pinning or stricter TLS, extend `ApiClient` (GetConnect) to configure a custom `HttpClient` and `SecurityContext`. Hooks are already in place to centralize headers & retries.
+
+---
+
+## ⚙️ Flutter wiring
+
+Add dependencies:
 
 ```bash
 flutter pub add get get_storage responsive_grid
+# Optional (if you switch AuthService to secure storage)
+# flutter pub add flutter_secure_storage
 ```
 
-**Optional (handy):**
-```yaml
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: any
+Minimal `main.dart` (if you didn’t use `emitMain`):
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
+import 'core/env/env.dart';
+import 'core/api_client.dart';
+import 'core/auth/auth_service.dart';
+import 'core/routes.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await GetStorage.init();
+
+  // Use generator-baked profiles
+  Env.initGenerated();
+  // (Optional) Switch at runtime:
+  // Env.setProfile('prod'); // or pass --dart-define=ENV=prod at launch
+
+  if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
+  if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
+
+  runApp(GetMaterialApp(
+    initialRoute: AppRoutes.splash,
+    getPages: AppRoutes.pages,
+    defaultTransition: Transition.fadeIn,
+  ));
+}
+```
+
+> Services read base paths & headers from `Env.get()`.
+
+---
+
+## 🔎 Filtering & Search (service support)
+
+- **Criteria (JPA meta filtering)** via query params:
+```dart
+final result = await orderService.listPaged(
+  page: 0,
+  size: 20,
+  sort: ['id,desc'],
+  filters: {
+    'status': {'in': ['PAID','NEW']},
+    'total': {'greaterThan': 100},
+    'createdDate': {'specified': true},
+  },
+  distinct: true,
+);
+```
+
+- **Elasticsearch search** (if backend exposes `/_search/<entities>`):
+```dart
+final search = await orderService.search(
+  query: 'customer:john*',
+  page: 0,
+  size: 20,
+);
+```
+
+- **PATCH** uses `application/merge-patch+json`:
+```dart
+await orderService.patch(id, {'status': 'PAID'});
 ```
 
 ---
@@ -207,135 +281,25 @@ This creates models, services, controllers, forms and a table view for **BlogPos
 
 ---
 
-## ⚙️ Flutter wiring (once per app)
-
-Add dependencies (if not already):
+## 🧰 Local development
 
 ```bash
-flutter pub add get get_storage responsive_grid
-```
-
-Minimal `main.dart`:
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import 'package:get_storage/get_storage.dart';
-import 'core/env/env.dart';
-import 'core/api_client.dart';
-import 'core/auth/auth_service.dart';
-import 'core/routes.dart';
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await GetStorage.init();
-
-  // EITHER: Use the generated defaults from env.dart
-  Env.initGenerated();
-
-  // OR: Provide your own values explicitly (Keycloak example)
-  // Env.init(EnvConfig(
-  //   appName: 'My App',
-  //   envName: 'dev',
-  //   apiHost: 'http://localhost:8080',
-  //   authProvider: AuthProvider.keycloak,
-  //   tokenEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/token',
-  //   logoutEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/logout',
-  //   authorizeEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/auth',
-  //   userinfoEndpoint: 'http://localhost:8080/realms/myrealm/protocol/openid-connect/userinfo',
-  //   keycloakClientId: 'my-client',
-  //   keycloakClientSecret: '',
-  //   keycloakScopes: ['openid', 'profile', 'email', 'offline_access'],
-  // ));
-
-  // OR: JHipster JWT example
-  // Env.init(EnvConfig(
-  //   appName: 'My App',
-  //   envName: 'dev',
-  //   apiHost: 'https://api.example.com',
-  //   authProvider: AuthProvider.jhipsterJwt,
-  //   jwtAuthEndpoint: '/api/authenticate',
-  //   accountEndpoint: '/api/account',
-  // ));
-
-  Get.put(ApiClient(), permanent: true);
-  Get.put(AuthService(), permanent: true);
-
-  runApp(GetMaterialApp(
-    initialRoute: AppRoutes.splash,
-    getPages: AppRoutes.pages,
-    defaultTransition: Transition.fadeIn,
-  ));
-}
-```
-
-> The environment file is independent and self-sufficient — initialize it via `Env.initGenerated()` or override with `Env.init(EnvConfig(...))`. Services read base paths/headers from `Env.get()`.
-
----
-
-## 🔎 Filtering & Search (what the services support)
-
-- **Criteria (JPA meta filtering)** via query params:
-```dart
-final result = await orderService.listPaged(
-  page: 0,
-  size: 20,
-  sort: ['id,desc'],
-  filters: {
-    'status': {'in': ['PAID','NEW']},
-    'total': {'greaterThan': 100},
-    'createdDate': {'specified': true},
-  },
-  distinct: true,
-);
-```
-
-- **Elasticsearch search** (if backend exposes `/_search/<entities>`):
-```dart
-final search = await orderService.search(
-  query: 'customer:john*',
-  page: 0,
-  size: 20,
-);
-```
-
-- **PATCH** uses `application/merge-patch+json`:
-```dart
-await orderService.patch(id, {'status': 'PAID'});
+git clone <your-repo>
+cd fhipster
+npm install
+npm link           # makes "fhipster" available globally
+fhipster --help
 ```
 
 ---
 
-## 🧱 About DataTable
+## 🐛 Troubleshooting
 
-The generated table views use Flutter's built-in **`DataTable`** (from `material.dart`) with horizontal scrolling and custom toolbar/pagination widgets.  
-**No extra package is required** beyond the ones listed above.
-
-**Optional alternatives** if you want richer grid features later:
-
-- `data_table_2` — enhanced `DataTable`
-- `flutter_paginated_data_table_2` — improved paginated table
-- `pluto_grid` or `syncfusion_flutter_datagrid` — full data grids with virtualization
-
----
-
-## 🔐 Auth flow
-
-- **Keycloak**: Password Grant (`offline_access` supported), automatic **token refresh**
-- **JHipster JWT**: Simple bearer token from `/api/authenticate` (no refresh); optional `/api/account` enrichment
-- Auth & role middlewares guard routes; `AuthService` exposes `username`, `displayName`, `authorities`, and token expiries
-
-> For Keycloak: enable **Direct Access Grants** on the client if you use the password flow.
-
----
-# Auto-detects fhipster.config.yaml in CWD
-`fhipster`
-
-# Or explicitly:
-`fhipster --config ./fhipster.config.yaml`
-
-# CLI flags still override YAML:
-`fhipster --config ./fhipster.config.yaml -a https://gateway.example.com`
+- **“JDL file not found”** — check `jdlFile` in YAML or pass it as the first positional arg.
+- **“main.dart not generated”** — set `emitMain: true` in YAML or pass `--emitMain`.
+- **Generated into wrong folder** — set `outputDir: ./lib` if you want to write directly into a Flutter app.
+- **Auth errors** — verify Keycloak endpoints and client, or JWT endpoints; confirm CORS and gateway paths.
+- **Nothing changed** — files are hashed; unchanged files show as “Skipped — unchanged”. Use `--force` to rewrite.
 
 ---
 
@@ -344,7 +308,7 @@ The generated table views use Flutter's built-in **`DataTable`** (from `material
 PRs welcome!
 
 1. Fork → branch → commit → PR  
-2. Keep changes focused and covered  
+2. Keep changes focused  
 3. Follow existing code style
 
 ---
@@ -364,7 +328,7 @@ Inspired by the JHipster community. Built with ❤️ by Heaven'sCode.
 ## 🛣️ Roadmap
 
 - More field types & validations
-- Extra table widgets (column chooser, server sort)
+- Extra table widgets (column chooser, server side sorting)
 - Template customization hooks
 - Interactive CLI wizard
 - Example backend + end-to-end sample
