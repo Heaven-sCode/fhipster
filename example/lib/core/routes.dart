@@ -15,9 +15,9 @@ import '../controllers/splash_controller.dart';
 import '../controllers/login_controller.dart';
 
 import '../views/properties_table_view.dart';
-import '../views/media_assets_table_view.dart';
+import '../views/mediaAssets_table_view.dart';
 import '../controllers/properties_controller.dart';
-import '../controllers/media_assets_controller.dart';
+import '../controllers/mediaAssets_controller.dart';
 
 class AppRoutes {
   static const splash = '/';
@@ -77,7 +77,7 @@ class AppRoutes {
       middlewares: [AuthMiddleware(requireAuth: true)],
     ),
     GetPage(
-      name: '/media_assets',
+      name: '/mediaassets',
       page: () => const MediaAssetsTableView(),
       binding: BindingsBuilder(() {
         _ensureCore();

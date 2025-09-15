@@ -1,12 +1,4 @@
-// generators/main_dart_generator.js
-// Emits lib/main.dart
-// - Initializes profiles baked into Env.initGenerated()
-// - Selects runtime profile from --dart-define=ENV=dev|prod (defaults to 'dev')
-// - Registers ApiClient + AuthService singletons
-// - Boots GetMaterialApp with routes
-
-function generateMainDartTemplate() {
-  return `import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
@@ -60,7 +52,3 @@ class FHipsterApp extends StatelessWidget {
     );
   }
 }
-`;
-}
-
-module.exports = { generateMainDartTemplate };

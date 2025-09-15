@@ -1,416 +1,449 @@
 // generators/env_generator.js
-// Emits: lib/core/env/env.dart
-// - Dual auth: Keycloak OIDC or JHipster JWT
-// - Gateway-aware URL builders
-// - Bakes ALL config from YAML/CLI (Keycloak + JWT + general app/env settings)
-// - SAFE: escapes Dart ${...} so Node doesn't interpolate
+// Emits lib/core/env/env.dart
+//
+// - Two baked profiles (dev & prod) injected from generator
+// - Env.initGenerated() registers both and defaults to 'dev'
+// - Env.setProfile('dev'|'prod') or Env.use('dev'|'prod')
+// - AuthProvider: keycloak | jhipsterJwt
+// - Gateway-aware base path builder (JHipster API Gateway)
+// - Shared defaults for paging/sorting, headers, storage keys
+//
+// Input:
+//   generateEnvTemplate({ devProfile, prodProfile })
+//
+// Where each profile is a plain JS object with fields like:
+//   {
+//     appName, envName, apiHost, useGateway, gatewayServiceName,
+//     authProvider, jwtAuthEndpoint, accountEndpoint, allowCredentialCacheForJwt,
+//     keycloakTokenEndpoint, keycloakLogoutEndpoint, keycloakAuthorizeEndpoint, keycloakUserinfoEndpoint,
+//     keycloakClientId, keycloakClientSecret, keycloakScopes (string[]),
+//     defaultPageSize, pageSizeOptions (int[]), defaultSort (string[]), defaultSearchSort (string[]), distinctByDefault,
+//     totalCountHeaderName,
+//     storageKeyAccessToken, storageKeyAccessExpiry, storageKeyRefreshToken, storageKeyRefreshExpiry, storageKeyRememberedUsername,
+//     relationshipPayloadMode,
+//     pluralOverrides: { [k:string]: string }
+//   }
 
-function esc(str = '') {
-  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+function s(v) {
+  if (v === null || v === undefined) return 'null';
+  const str = String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return `'${str}'`;
 }
-function toDartBool(v, fallback = false) {
-  return (v === true || v === false) ? (v ? 'true' : 'false') : (fallback ? 'true' : 'false');
+function b(v) {
+  return v ? 'true' : 'false';
 }
-function toDartEnum_AuthProvider(p) {
-  const k = (p || 'keycloak').toLowerCase();
-  return (k === 'jhipsterjwt' || k === 'jhipster_jwt')
-    ? 'AuthProvider.jhipsterJwt'
-    : 'AuthProvider.keycloak';
+function listStr(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return 'const <String>[]';
+  return `const <String>[${arr.map(s).join(', ')}]`;
 }
-function toDartEnum_RelMode(v) {
-  const k = (v || 'idOnly').toLowerCase();
-  return k === 'fullobject' ? 'RelationshipPayloadMode.fullObject' : 'RelationshipPayloadMode.idOnly';
+function listInt(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return 'const <int>[]';
+  return `const <int>[${arr.map((n) => Number(n)).join(', ')}]`;
 }
-function mapToDartLiteral(obj = {}) {
-  const lines = Object.entries(obj).map(
-    ([k, v]) => `      '${esc(k)}': '${esc(v)}',`
-  );
-  return lines.length ? `{\n${lines.join('\n')}\n    }` : '{}';
+function mapStr(map) {
+  const obj = map || {};
+  const entries = Object.entries(obj);
+  if (entries.length === 0) return 'const <String, String>{}';
+  const body = entries
+    .map(([k, v]) => `${s(String(k))}: ${s(String(v))}`)
+    .join(', ');
+  return `const <String, String>{${body}}`;
 }
-function listToDartConstStringList(arr, fallback = []) {
-  if (!Array.isArray(arr) || arr.length === 0) arr = fallback;
-  const items = arr.map(s => `'${esc(String(s))}'`).join(', ');
-  return `const [${items}]`;
-}
-function listToDartConstIntList(arr, fallback = []) {
-  if (!Array.isArray(arr) || arr.length === 0) arr = fallback;
-  const items = arr.map(n => `${Number(n) | 0}`).join(', ');
-  return `const [${items}]`;
+function authEnum(provider) {
+  return String(provider) === 'jhipsterJwt' ? 'AuthProvider.jhipsterJwt' : 'AuthProvider.keycloak';
 }
 
-/**
- * Generate env.dart with baked defaults from opts (YAML/CLI).
- *
- * All fields are optional; sensible defaults applied when absent.
- */
-function generateEnvTemplate(opts = {}) {
-  // ---------- General ----------
-  const appName = opts.appName || 'FHipster';
-  const envName = opts.envName || 'dev';
-  const apiHost = opts.apiHost || 'http://localhost:8080';
-  const useGateway = !!opts.useGateway;
-  const gatewayServiceName = opts.gatewayServiceName || null;
-  const pluralOverrides = opts.pluralOverrides || {};
+function cfgToDart(profile, label = 'dev') {
+  // Safeguard defaults
+  const p = {
+    appName: 'FHipster',
+    envName: label,
+    apiHost: 'http://localhost:8080',
+    useGateway: false,
+    gatewayServiceName: null,
 
-  // ---------- Auth Provider ----------
-  const authProvider = (opts.authProvider || 'keycloak').toLowerCase(); // 'keycloak'|'jhipsterJwt'
+    authProvider: 'keycloak',
 
-  // ---------- Keycloak (if used) ----------
-  const kcTokenEndpoint      = opts.keycloakTokenEndpoint      || 'CHANGE_ME_TOKEN_ENDPOINT';
-  const kcLogoutEndpoint     = opts.keycloakLogoutEndpoint     || 'CHANGE_ME_LOGOUT_ENDPOINT';
-  const kcAuthorizeEndpoint  = opts.keycloakAuthorizeEndpoint  || 'CHANGE_ME_AUTHORIZE_ENDPOINT';
-  const kcUserinfoEndpoint   = opts.keycloakUserinfoEndpoint   || 'CHANGE_ME_USERINFO_ENDPOINT';
-  const kcClientId           = opts.keycloakClientId           || 'CHANGE_ME_CLIENT_ID';
-  const kcClientSecret       = (opts.keycloakClientSecret != null) ? opts.keycloakClientSecret : null;
-  const kcScopes             = Array.isArray(opts.keycloakScopes) && opts.keycloakScopes.length
-    ? opts.keycloakScopes
-    : ['openid', 'profile', 'email', 'offline_access'];
+    jwtAuthEndpoint: '/api/authenticate',
+    accountEndpoint: '/api/account',
+    allowCredentialCacheForJwt: false,
 
-  // ---------- JWT (if used) ----------
-  const jwtAuthEndpoint      = opts.jwtAuthEndpoint      || '/api/authenticate';
-  const accountEndpoint      = opts.accountEndpoint      || '/api/account';
-  const allowCredCacheJwt    = (opts.allowCredentialCacheForJwt === true || opts.allowCredentialCacheForJwt === false)
-    ? opts.allowCredentialCacheForJwt
-    : false;
+    keycloakTokenEndpoint: null,
+    keycloakLogoutEndpoint: null,
+    keycloakAuthorizeEndpoint: null,
+    keycloakUserinfoEndpoint: null,
+    keycloakClientId: null,
+    keycloakClientSecret: null,
+    keycloakScopes: ['openid', 'profile', 'email', 'offline_access'],
 
-  // ---------- Paging / Sorting / Distinct ----------
-  const defaultPageSize      = Number.isFinite(opts.defaultPageSize) ? Number(opts.defaultPageSize) : 20;
-  const pageSizeOptions      = Array.isArray(opts.pageSizeOptions) ? opts.pageSizeOptions : [10, 20, 50, 100];
-  const defaultSort          = Array.isArray(opts.defaultSort) && opts.defaultSort.length ? opts.defaultSort : ['id,desc'];
-  const defaultSearchSort    = Array.isArray(opts.defaultSearchSort) && opts.defaultSearchSort.length ? opts.defaultSearchSort : ['_score,desc'];
-  const distinctByDefault    = !!opts.distinctByDefault;
+    defaultPageSize: 20,
+    pageSizeOptions: [10, 20, 50, 100],
+    defaultSort: ['id,desc'],
+    defaultSearchSort: ['_score,desc'],
+    distinctByDefault: false,
 
-  // ---------- Headers / Storage ----------
-  const totalCountHeaderName = opts.totalCountHeaderName || 'X-Total-Count';
+    totalCountHeaderName: 'X-Total-Count',
+    storageKeyAccessToken: 'fh_access_token',
+    storageKeyAccessExpiry: 'fh_access_expiry',
+    storageKeyRefreshToken: 'fh_refresh_token',
+    storageKeyRefreshExpiry: 'fh_refresh_expiry',
+    storageKeyRememberedUsername: 'fh_remembered_username',
 
-  const storageKeyAccessToken       = opts.storageKeyAccessToken       || 'fh_access_token';
-  const storageKeyAccessExpiry      = opts.storageKeyAccessExpiry      || 'fh_access_expiry';
-  const storageKeyRefreshToken      = opts.storageKeyRefreshToken      || 'fh_refresh_token';
-  const storageKeyRefreshExpiry     = opts.storageKeyRefreshExpiry     || 'fh_refresh_expiry';
-  const storageKeyRememberedUsername= opts.storageKeyRememberedUsername|| 'fh_remembered_username';
+    relationshipPayloadMode: 'idOnly',
+    pluralOverrides: {},
+    ...(profile || {}),
+  };
 
-  // ---------- Relationships ----------
-  const relationshipPayloadMode     = toDartEnum_RelMode(opts.relationshipPayloadMode);
+  return `EnvConfig(
+      // ---- Identity ----
+      appName: ${s(p.appName)},
+      envName: ${s(p.envName)},
 
-  // ---------- Literals ----------
-  const gw = gatewayServiceName ? `'${esc(gatewayServiceName)}'` : 'null';
-  const pluralOverridesLiteral = mapToDartLiteral(pluralOverrides);
+      // ---- Networking ----
+      apiHost: ${s(p.apiHost)},
+      useGateway: ${b(!!p.useGateway)},
+      gatewayServiceName: ${p.gatewayServiceName ? s(p.gatewayServiceName) : 'null'},
 
-  const kcToken   = `'${esc(kcTokenEndpoint)}'`;
-  const kcLogout  = `'${esc(kcLogoutEndpoint)}'`;
-  const kcAuthz   = `'${esc(kcAuthorizeEndpoint)}'`;
-  const kcUser    = `'${esc(kcUserinfoEndpoint)}'`;
-  const kcClient  = `'${esc(kcClientId)}'`;
-  const kcSecret  = kcClientSecret != null ? `'${esc(kcClientSecret)}'` : 'null';
-  const kcScopesL = listToDartConstStringList(kcScopes);
+      // ---- Auth ----
+      authProvider: ${authEnum(p.authProvider)},
 
-  const pageSizeOptionsL   = listToDartConstIntList(pageSizeOptions);
-  const defaultSortL       = listToDartConstStringList(defaultSort);
-  const defaultSearchSortL = listToDartConstStringList(defaultSearchSort);
+      // JWT (JHipster)
+      jwtAuthEndpoint: ${s(p.jwtAuthEndpoint)},
+      accountEndpoint: ${s(p.accountEndpoint)},
+      allowCredentialCacheForJwt: ${b(!!p.allowCredentialCacheForJwt)},
 
-  return `// lib/core/env/env.dart
-// -----------------------------------------------------------------------------
-// FHipster Environment (self-contained) - GENERATED
-// -----------------------------------------------------------------------------
-// - Supports two auth providers: Keycloak OIDC or JHipster JWT
-// - Initialize with:
-//     Env.initGenerated();   // use baked defaults (below)
-//   or
-//     Env.init(EnvConfig(...)); // override programmatically
-// -----------------------------------------------------------------------------
+      // Keycloak (OIDC)
+      tokenEndpoint: ${p.keycloakTokenEndpoint ? s(p.keycloakTokenEndpoint) : 'null'},
+      logoutEndpoint: ${p.keycloakLogoutEndpoint ? s(p.keycloakLogoutEndpoint) : 'null'},
+      authorizeEndpoint: ${p.keycloakAuthorizeEndpoint ? s(p.keycloakAuthorizeEndpoint) : 'null'},
+      userinfoEndpoint: ${p.keycloakUserinfoEndpoint ? s(p.keycloakUserinfoEndpoint) : 'null'},
+      keycloakClientId: ${p.keycloakClientId ? s(p.keycloakClientId) : 'null'},
+      keycloakClientSecret: ${p.keycloakClientSecret ? s(p.keycloakClientSecret) : 'null'},
+      keycloakScopes: ${listStr(p.keycloakScopes)},
+
+      // ---- Paging / sorting ----
+      defaultPageSize: ${Number(p.defaultPageSize)},
+      pageSizeOptions: ${listInt(p.pageSizeOptions)},
+      defaultSort: ${listStr(p.defaultSort)},
+      defaultSearchSort: ${listStr(p.defaultSearchSort)},
+      distinctByDefault: ${b(!!p.distinctByDefault)},
+
+      // ---- Headers / storage ----
+      totalCountHeaderName: ${s(p.totalCountHeaderName)},
+      storageKeyAccessToken: ${s(p.storageKeyAccessToken)},
+      storageKeyAccessExpiry: ${s(p.storageKeyAccessExpiry)},
+      storageKeyRefreshToken: ${s(p.storageKeyRefreshToken)},
+      storageKeyRefreshExpiry: ${s(p.storageKeyRefreshExpiry)},
+      storageKeyRememberedUsername: ${s(p.storageKeyRememberedUsername)},
+
+      // ---- Relationships ----
+      relationshipPayloadMode: ${s(p.relationshipPayloadMode)},
+
+      // ---- Plural overrides ----
+      pluralOverrides: ${mapStr(p.pluralOverrides)},
+    )`;
+}
+
+function generateEnvTemplate({ devProfile = {}, prodProfile = {} } = {}) {
+  const devCfg = cfgToDart(devProfile, 'dev');
+  const prodCfg = cfgToDart(prodProfile, 'prod');
+
+  return `// GENERATED BY FHipster — do not edit by hand.
+//
+// Env & EnvConfig with baked profiles (dev, prod).
+// Use Env.initGenerated(); Env.setProfile('dev'|'prod');
+//
+// If you need to override at runtime, you can still call:
+//   Env.init(EnvConfig(...));   // single profile
+//   Env.registerProfiles({...}); Env.use('prod'); // multi-profile
+//
+// Switching profiles at runtime:
+//   Env.setProfile('prod');  // alias of Env.use('prod')
+//
+// Build-time switch via Dart define:
+//   flutter run -t lib/main.dart --dart-define=ENV=prod
 
 enum AuthProvider { keycloak, jhipsterJwt }
-enum RelationshipPayloadMode { idOnly, fullObject }
 
 class EnvConfig {
-  // App
+  // ---- Identity ----
   final String appName;
   final String envName;
 
-  // API host & gateway
-  final String apiHost;
-  final bool useGateway;
-  final String? gatewayServiceName;
+  // ---- Networking ----
+  final String apiHost;                // e.g., http://localhost:8080
+  final bool useGateway;               // /services/<svc>/api/**
+  final String? gatewayServiceName;    // service segment when useGateway=true
 
-  // Auth mode
-  final AuthProvider authProvider;
+  // ---- Auth ----
+  final AuthProvider authProvider;     // keycloak | jhipsterJwt
 
-  // Keycloak / OIDC endpoints
-  final String tokenEndpoint;
-  final String logoutEndpoint;
-  final String authorizeEndpoint;
-  final String userinfoEndpoint;
+  // JWT (JHipster)
+  final String jwtAuthEndpoint;        // /api/authenticate
+  final String accountEndpoint;        // /api/account
+  final bool allowCredentialCacheForJwt;
 
-  // Keycloak client info
-  final String keycloakClientId;
+  // Keycloak (OIDC)
+  final String? tokenEndpoint;
+  final String? logoutEndpoint;
+  final String? authorizeEndpoint;
+  final String? userinfoEndpoint;
+  final String? keycloakClientId;
   final String? keycloakClientSecret;
   final List<String> keycloakScopes;
 
-  // JHipster JWT endpoints
-  final String jwtAuthEndpoint; // /api/authenticate
-  final String accountEndpoint; // /api/account
-  final bool allowCredentialCacheForJwt;
-
-  // Paging & sorting defaults
+  // ---- Paging / sorting ----
   final int defaultPageSize;
   final List<int> pageSizeOptions;
   final List<String> defaultSort;
   final List<String> defaultSearchSort;
   final bool distinctByDefault;
 
-  // Headers
+  // ---- Headers / storage ----
   final String totalCountHeaderName;
-
-  // Storage keys
   final String storageKeyAccessToken;
   final String storageKeyAccessExpiry;
   final String storageKeyRefreshToken;
   final String storageKeyRefreshExpiry;
   final String storageKeyRememberedUsername;
 
-  // Relationships
-  final RelationshipPayloadMode relationshipPayloadMode;
+  // ---- Relationships ----
+  final String relationshipPayloadMode; // 'idOnly' | 'fullObject'
 
-  // Plural overrides
+  // ---- Plural overrides ----
   final Map<String, String> pluralOverrides;
 
   const EnvConfig({
-    // App
-    this.appName = 'FHipster',
-    this.envName = 'dev',
+    // Identity
+    required this.appName,
+    required this.envName,
 
-    // API
-    this.apiHost = 'http://localhost:8080',
-    this.useGateway = false,
-    this.gatewayServiceName,
+    // Networking
+    required this.apiHost,
+    required this.useGateway,
+    required this.gatewayServiceName,
 
     // Auth
-    this.authProvider = AuthProvider.keycloak,
+    required this.authProvider,
 
-    // Keycloak defaults (placeholders)
-    this.tokenEndpoint = 'CHANGE_ME_TOKEN_ENDPOINT',
-    this.logoutEndpoint = 'CHANGE_ME_LOGOUT_ENDPOINT',
-    this.authorizeEndpoint = 'CHANGE_ME_AUTHORIZE_ENDPOINT',
-    this.userinfoEndpoint = 'CHANGE_ME_USERINFO_ENDPOINT',
-    this.keycloakClientId = 'CHANGE_ME_CLIENT_ID',
-    this.keycloakClientSecret,
-    this.keycloakScopes = const ['openid', 'profile', 'email', 'offline_access'],
+    // JWT
+    required this.jwtAuthEndpoint,
+    required this.accountEndpoint,
+    required this.allowCredentialCacheForJwt,
 
-    // JWT defaults
-    this.jwtAuthEndpoint = '/api/authenticate',
-    this.accountEndpoint = '/api/account',
-    this.allowCredentialCacheForJwt = false,
+    // Keycloak
+    required this.tokenEndpoint,
+    required this.logoutEndpoint,
+    required this.authorizeEndpoint,
+    required this.userinfoEndpoint,
+    required this.keycloakClientId,
+    required this.keycloakClientSecret,
+    required this.keycloakScopes,
 
-    // Paging / sorting
-    this.defaultPageSize = 20,
-    this.pageSizeOptions = const [10, 20, 50, 100],
-    this.defaultSort = const ['id,desc'],
-    this.defaultSearchSort = const ['_score,desc'],
-    this.distinctByDefault = false,
+    // Paging/sorting
+    required this.defaultPageSize,
+    required this.pageSizeOptions,
+    required this.defaultSort,
+    required this.defaultSearchSort,
+    required this.distinctByDefault,
 
-    // Headers
-    this.totalCountHeaderName = 'X-Total-Count',
-
-    // Storage keys
-    this.storageKeyAccessToken = 'fh_access_token',
-    this.storageKeyAccessExpiry = 'fh_access_expiry',
-    this.storageKeyRefreshToken = 'fh_refresh_token',
-    this.storageKeyRefreshExpiry = 'fh_refresh_expiry',
-    this.storageKeyRememberedUsername = 'fh_remembered_username',
+    // Headers/storage
+    required this.totalCountHeaderName,
+    required this.storageKeyAccessToken,
+    required this.storageKeyAccessExpiry,
+    required this.storageKeyRefreshToken,
+    required this.storageKeyRefreshExpiry,
+    required this.storageKeyRememberedUsername,
 
     // Relationships
-    this.relationshipPayloadMode = RelationshipPayloadMode.idOnly,
+    required this.relationshipPayloadMode,
 
-    // Plural overrides
-    this.pluralOverrides = const {},
+    // Plurals
+    required this.pluralOverrides,
   });
+
+  EnvConfig copyWith({
+    String? appName,
+    String? envName,
+    String? apiHost,
+    bool? useGateway,
+    String? gatewayServiceName,
+
+    AuthProvider? authProvider,
+    String? jwtAuthEndpoint,
+    String? accountEndpoint,
+    bool? allowCredentialCacheForJwt,
+
+    String? tokenEndpoint,
+    String? logoutEndpoint,
+    String? authorizeEndpoint,
+    String? userinfoEndpoint,
+    String? keycloakClientId,
+    String? keycloakClientSecret,
+    List<String>? keycloakScopes,
+
+    int? defaultPageSize,
+    List<int>? pageSizeOptions,
+    List<String>? defaultSort,
+    List<String>? defaultSearchSort,
+    bool? distinctByDefault,
+
+    String? totalCountHeaderName,
+    String? storageKeyAccessToken,
+    String? storageKeyAccessExpiry,
+    String? storageKeyRefreshToken,
+    String? storageKeyRefreshExpiry,
+    String? storageKeyRememberedUsername,
+
+    String? relationshipPayloadMode,
+    Map<String, String>? pluralOverrides,
+  }) {
+    return EnvConfig(
+      appName: appName ?? this.appName,
+      envName: envName ?? this.envName,
+      apiHost: apiHost ?? this.apiHost,
+      useGateway: useGateway ?? this.useGateway,
+      gatewayServiceName: gatewayServiceName ?? this.gatewayServiceName,
+
+      authProvider: authProvider ?? this.authProvider,
+      jwtAuthEndpoint: jwtAuthEndpoint ?? this.jwtAuthEndpoint,
+      accountEndpoint: accountEndpoint ?? this.accountEndpoint,
+      allowCredentialCacheForJwt: allowCredentialCacheForJwt ?? this.allowCredentialCacheForJwt,
+
+      tokenEndpoint: tokenEndpoint ?? this.tokenEndpoint,
+      logoutEndpoint: logoutEndpoint ?? this.logoutEndpoint,
+      authorizeEndpoint: authorizeEndpoint ?? this.authorizeEndpoint,
+      userinfoEndpoint: userinfoEndpoint ?? this.userinfoEndpoint,
+      keycloakClientId: keycloakClientId ?? this.keycloakClientId,
+      keycloakClientSecret: keycloakClientSecret ?? this.keycloakClientSecret,
+      keycloakScopes: keycloakScopes ?? this.keycloakScopes,
+
+      defaultPageSize: defaultPageSize ?? this.defaultPageSize,
+      pageSizeOptions: pageSizeOptions ?? this.pageSizeOptions,
+      defaultSort: defaultSort ?? this.defaultSort,
+      defaultSearchSort: defaultSearchSort ?? this.defaultSearchSort,
+      distinctByDefault: distinctByDefault ?? this.distinctByDefault,
+
+      totalCountHeaderName: totalCountHeaderName ?? this.totalCountHeaderName,
+      storageKeyAccessToken: storageKeyAccessToken ?? this.storageKeyAccessToken,
+      storageKeyAccessExpiry: storageKeyAccessExpiry ?? this.storageKeyAccessExpiry,
+      storageKeyRefreshToken: storageKeyRefreshToken ?? this.storageKeyRefreshToken,
+      storageKeyRefreshExpiry: storageKeyRefreshExpiry ?? this.storageKeyRefreshExpiry,
+      storageKeyRememberedUsername: storageKeyRememberedUsername ?? this.storageKeyRememberedUsername,
+
+      relationshipPayloadMode: relationshipPayloadMode ?? this.relationshipPayloadMode,
+      pluralOverrides: pluralOverrides ?? this.pluralOverrides,
+    );
+  }
+
+  bool get isKeycloak => authProvider == AuthProvider.keycloak;
+  bool get isJwt => authProvider == AuthProvider.jhipsterJwt;
 }
 
 class Env {
-  final EnvConfig _c;
-  Env._(this._c);
+  static EnvConfig? _cfg;
+  static final Map<String, EnvConfig> _profiles = <String, EnvConfig>{};
 
-  static Env? _i;
-
-  static void init(EnvConfig config) {
-    _i = Env._(config);
+  /// Initialize with a single config (no profiles).
+  static void init(EnvConfig cfg) {
+    _cfg = cfg;
   }
 
-  /// Initialize with the baked defaults from the generator.
+  /// Initialize baked profiles (dev & prod). Defaults to dev.
   static void initGenerated() {
-    if (_i != null) return;
-    _i = Env._(EnvConfig(
-      // App
-      appName: '${esc(appName)}',
-      envName: '${esc(envName)}',
-
-      // API
-      apiHost: '${esc(apiHost)}',
-      useGateway: ${toDartBool(useGateway)},
-      gatewayServiceName: ${gatewayServiceName ? `'${esc(gatewayServiceName)}'` : 'null'},
-
-      // Auth
-      authProvider: ${toDartEnum_AuthProvider(authProvider)},
-
-      // Keycloak baked values (still present even if you use JWT)
-      tokenEndpoint: '${esc(kcTokenEndpoint)}',
-      logoutEndpoint: '${esc(kcLogoutEndpoint)}',
-      authorizeEndpoint: '${esc(kcAuthorizeEndpoint)}',
-      userinfoEndpoint: '${esc(kcUserinfoEndpoint)}',
-      keycloakClientId: '${esc(kcClientId)}',
-      keycloakClientSecret: ${kcClientSecret != null ? `'${esc(kcClientSecret)}'` : 'null'},
-      keycloakScopes: ${listToDartConstStringList(kcScopes)},
-
-      // JWT baked values
-      jwtAuthEndpoint: '${esc(jwtAuthEndpoint)}',
-      accountEndpoint: '${esc(accountEndpoint)}',
-      allowCredentialCacheForJwt: ${toDartBool(allowCredCacheJwt)},
-
-      // Paging / sorting
-      defaultPageSize: ${defaultPageSize | 0},
-      pageSizeOptions: ${listToDartConstIntList(pageSizeOptions)},
-      defaultSort: ${listToDartConstStringList(defaultSort)},
-      defaultSearchSort: ${listToDartConstStringList(defaultSearchSort)},
-      distinctByDefault: ${toDartBool(distinctByDefault)},
-
-      // Headers
-      totalCountHeaderName: '${esc(totalCountHeaderName)}',
-
-      // Storage keys
-      storageKeyAccessToken: '${esc(storageKeyAccessToken)}',
-      storageKeyAccessExpiry: '${esc(storageKeyAccessExpiry)}',
-      storageKeyRefreshToken: '${esc(storageKeyRefreshToken)}',
-      storageKeyRefreshExpiry: '${esc(storageKeyRefreshExpiry)}',
-      storageKeyRememberedUsername: '${esc(storageKeyRememberedUsername)}',
-
-      // Relationships
-      relationshipPayloadMode: ${relationshipPayloadMode},
-
-      // Plural overrides
-      pluralOverrides: ${mapToDartLiteral(pluralOverrides)},
-    ));
+    final dev = ${devCfg};
+    final prod = ${prodCfg};
+    registerProfiles(<String, EnvConfig>{'dev': dev, 'prod': prod});
+    _cfg = dev;
   }
 
-  static Env get() {
-    final i = _i;
-    if (i == null) {
-      throw StateError('Env.init(...) or Env.initGenerated() must be called before use.');
+  /// Register multiple named profiles.
+  static void registerProfiles(Map<String, EnvConfig> profiles) {
+    _profiles
+      ..clear()
+      ..addAll(profiles);
+  }
+
+  /// Register/replace a single named profile.
+  static void registerProfile(String name, EnvConfig cfg) {
+    _profiles[name] = cfg;
+  }
+
+  /// Use a named profile (throws if not found).
+  static void use(String name) {
+    final cfg = _profiles[name];
+    if (cfg == null) {
+      throw ArgumentError("Unknown profile: $name. Available: \${_profiles.keys.toList()}");
     }
-    return i;
+    _cfg = cfg;
   }
 
-  // Shorthands
-  bool get isKeycloak => authProvider == AuthProvider.keycloak;
-  bool get isJwt => authProvider == AuthProvider.jhipsterJwt;
+  /// Alias for [use].
+  static void setProfile(String name) => use(name);
 
-  // Getters
-  String get appName => _c.appName;
-  String get envName => _c.envName;
-
-  String get apiHost => _c.apiHost;
-  bool get useGateway => _c.useGateway;
-  String? get gatewayServiceName => _c.gatewayServiceName;
-
-  AuthProvider get authProvider => _c.authProvider;
-
-  String get tokenEndpoint => _c.tokenEndpoint;
-  String get logoutEndpoint => _c.logoutEndpoint;
-  String get authorizeEndpoint => _c.authorizeEndpoint;
-  String get userinfoEndpoint => _c.userinfoEndpoint;
-
-  String get keycloakClientId => _c.keycloakClientId;
-  String? get keycloakClientSecret => _c.keycloakClientSecret;
-  List<String> get keycloakScopes => _c.keycloakScopes;
-
-  String get jwtAuthEndpoint => _c.jwtAuthEndpoint;
-  String get accountEndpoint => _c.accountEndpoint;
-  bool get allowCredentialCacheForJwt => _c.allowCredentialCacheForJwt;
-
-  int get defaultPageSize => _c.defaultPageSize;
-  List<int> get pageSizeOptions => _c.pageSizeOptions;
-  List<String> get defaultSort => _c.defaultSort;
-  List<String> get defaultSearchSort => _c.defaultSearchSort;
-  bool get distinctByDefault => _c.distinctByDefault;
-
-  String get totalCountHeaderName => _c.totalCountHeaderName;
-
-  String get storageKeyAccessToken => _c.storageKeyAccessToken;
-  String get storageKeyAccessExpiry => _c.storageKeyAccessExpiry;
-  String get storageKeyRefreshToken => _c.storageKeyRefreshToken;
-  String get storageKeyRefreshExpiry => _c.storageKeyRefreshExpiry;
-  String get storageKeyRememberedUsername => _c.storageKeyRememberedUsername;
-
-  RelationshipPayloadMode get relationshipPayloadMode => _c.relationshipPayloadMode;
-
-  Map<String, String> get pluralOverrides =>
-      Map<String, String>.unmodifiable(_c.pluralOverrides);
-
-  // ==== Helpers ====
-
-  /// Pluralize an entity name to a collection path-friendly token.
-  String pluralFor(String singular) {
-    final s = singular.trim();
-    if (s.isEmpty) return s;
-
-    final ov = pluralOverrides[s] ??
-        (s.isNotEmpty ? pluralOverrides[s[0].toUpperCase() + s.substring(1)] : null);
-    if (ov != null && ov.isNotEmpty) return ov;
-
-    final lower = s.toLowerCase();
-    if (lower.endsWith('y') && s.length >= 2 && !_isVowel(lower[lower.length - 2])) {
-      return s.substring(0, s.length - 1) + 'ies';
+  /// Get current active config (throws if not initialized).
+  static EnvConfig get() {
+    final c = _cfg;
+    if (c == null) {
+      throw StateError('Env not initialized. Call Env.initGenerated() or Env.init(EnvConfig).');
     }
-    if (lower.endsWith('s') ||
-        lower.endsWith('x') ||
-        lower.endsWith('z') ||
-        lower.endsWith('ch') ||
-        lower.endsWith('sh')) {
-      return s + 'es';
+    return c;
+  }
+
+  /// Build the base API path considering gateway mode.
+  /// Example (gateway ON):
+  ///   apiBasePath(microservice: 'dms') => http://host/services/dms/api
+  /// Example (gateway OFF):
+  ///   apiBasePath() => http://host/api
+  static String apiBasePath({String microservice = '', String prefix = 'api'}) {
+    final cfg = get();
+    final host = _trimTrailing(cfg.apiHost);
+    if (cfg.useGateway) {
+      final svc = (cfg.gatewayServiceName?.isNotEmpty ?? false)
+          ? cfg.gatewayServiceName!
+          : microservice;
+      if (svc.isEmpty) {
+        return '\$host/\$prefix';
+      }
+      return '\$host/services/\$svc/\$prefix';
     }
-    return s + 's';
+    return '\$host/\$prefix';
   }
 
-  /// Builds a fully-qualified entity collection URL.
-  String entityBasePath(
-    String plural, {
-    String? microserviceOverride,
-  }) {
-    final p = _slug(plural);
-    final path = useGateway
-        ? '/services/\\\${microserviceOverride ?? (gatewayServiceName ?? '')}/api/\\$p'
-        : '/api/\\$p';
-    return _url(path);
+  /// Convenience: build an absolute URL from a path segment
+  ///   buildUrl('/health') -> http://host/health
+  static String buildUrl(String path) {
+    final base = _trimTrailing(get().apiHost);
+    if (path.startsWith('/')) return '\$base\$path';
+    return '\$base/\$path';
   }
 
-  /// Builds a fully-qualified Elasticsearch search URL for an entity.
-  String searchBasePath(
-    String plural, {
-    String? microserviceOverride,
-  }) {
-    final p = _slug(plural);
-    final path = useGateway
-        ? '/services/\\\${microserviceOverride ?? (gatewayServiceName ?? '')}/api/_search/\\$p'
-        : '/api/_search/\\$p';
-    return _url(path);
+  /// Default headers (JSON) with optional Bearer token.
+  static Map<String, String> defaultHeaders({String? accessToken}) {
+    final map = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (accessToken != null && accessToken.isNotEmpty) {
+      map['Authorization'] = 'Bearer \$accessToken';
+    }
+    return map;
   }
 
-  /// Join [apiHost] with a path (handles slashes).
-  String _url(String path) {
-    final host = apiHost.endsWith('/') ? apiHost.substring(0, apiHost.length - 1) : apiHost;
-    final p = path.startsWith('/') ? path : '/$path';
-    return host + p;
+  /// Merge-Patch headers.
+  static Map<String, String> mergePatchHeaders({String? accessToken}) {
+    final map = <String, String>{
+      'Content-Type': 'application/merge-patch+json',
+    };
+    if (accessToken != null && accessToken.isNotEmpty) {
+      map['Authorization'] = 'Bearer \$accessToken';
+    }
+    return map;
   }
 
-  /// Minimal slugifier for paths (lowercase, strip disallowed chars).
-  String _slug(String s) {
-    final trimmed = s.trim();
-    final hyphened = trimmed.replaceAll(RegExp(r'\\s+'), '-');
-    return hyphened.replaceAll(RegExp(r'[^A-Za-z0-9_\\-]'), '').toLowerCase();
+  static String _trimTrailing(String s) {
+    return s.replaceAll(RegExp(r'/+\$'), '');
   }
-
-  bool _isVowel(String ch) => 'aeiou'.contains(ch.toLowerCase());
 }
-
 `;
 }
 

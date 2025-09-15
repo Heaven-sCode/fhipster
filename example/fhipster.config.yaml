@@ -1,47 +1,78 @@
 # FHipster config (YAML)
-# You can still override any of these with CLI flags.
+emitMain: true
 
-# Optional – if you don't pass the JDL as a positional arg:
+# --- Inputs used by the generator itself ---
 jdlFile: ./JDL/app.jdl
-emitMain: false
-
-# Where to write the Flutter lib/ tree
 outputDir: ./lib
-
-# Your JHipster microservice name
 microservice: operationsModule
 
-# API host (Gateway in front of services)
-apiHost: http://34.50.81.155:8080
-
-# Use Gateway routing: /services/<service>/api/**
-useGateway: true
-gatewayServiceName: operationsModule
-
-# Attach auth & role guards to generated routes
+# Common (fallback) defaults for both profiles
+appName: Operations
+envName: dev                   # default envName (used if profile omits it)
 includeAuthGuards: true
 
-# Plural overrides (optional) – when JDL names don't pluralize well
+# Paging / sorting defaults
+defaultPageSize: 20
+pageSizeOptions: [10, 20, 50, 100]
+defaultSort: ['id,desc']
+defaultSearchSort: ['_score,desc']
+distinctByDefault: false
+
+# Headers / storage key names
+totalCountHeaderName: X-Total-Count
+storageKeyAccessToken: fh_access_token
+storageKeyAccessExpiry: fh_access_expiry
+storageKeyRefreshToken: fh_refresh_token
+storageKeyRefreshExpiry: fh_refresh_expiry
+storageKeyRememberedUsername: fh_remembered_username
+
+# Relationships payload mode for services: idOnly | fullObject
+relationshipPayloadMode: idOnly
+
+# Plural overrides when API resource names differ
 pluralOverrides:
   person: people
   address: addresses
 
-# Authentication mode (dual)
-auth:
-  provider: keycloak   # keycloak | jhipsterJwt
+# --- Profiles: dev & prod ---
+profiles:
+  dev:
+    apiHost: http://34.50.81.155:8080
+    useGateway: true
+    gatewayServiceName: operationsModule
+    appName: Operations (DEV)
+    envName: dev
 
-  # For JWT mode you could set:
-  # jwtAuthEndpoint: /api/authenticate
-  # accountEndpoint: /api/account
+    auth:
+      provider: keycloak  # keycloak | jhipsterJwt
+      # For Keycloak:
+      keycloak:
+        tokenEndpoint:      http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/token
+        logoutEndpoint:     http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/logout
+        authorizeEndpoint:  http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/auth
+        userinfoEndpoint:   http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/userinfo
+        clientId:           mobile_app
+        clientSecret:       ""
+        scopes: [openid, profile, email, offline_access]
+      # For JWT (if you switch provider to jhipsterJwt):
+      # jwtAuthEndpoint: /api/authenticate
+      # accountEndpoint: /api/account
+      # allowCredentialCacheForJwt: false
 
-  # Optional: if you want to bake Keycloak endpoints directly in env.dart in the future,
-  # keep these here; bin/index.js already passes YAML through so env_generator can use them
-  # once extended to accept them.
-  keycloak:
-    tokenEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/token
-    logoutEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/logout
-    authorizeEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/auth
-    userinfoEndpoint: http://34.50.81.155:8080/realms/myrealm/protocol/openid-connect/userinfo
-    clientId: my-client
-    clientSecret: ""
-    scopes: [openid, profile, email, offline_access]
+  prod:
+    apiHost: https://api.example.com
+    useGateway: true
+    gatewayServiceName: operationsModule
+    appName: Operations
+    envName: prod
+
+    auth:
+      provider: keycloak
+      keycloak:
+        tokenEndpoint:      https://auth.example.com/realms/myrealm/protocol/openid-connect/token
+        logoutEndpoint:     https://auth.example.com/realms/myrealm/protocol/openid-connect/logout
+        authorizeEndpoint:  https://auth.example.com/realms/myrealm/protocol/openid-connect/auth
+        userinfoEndpoint:   https://auth.example.com/realms/myrealm/protocol/openid-connect/userinfo
+        clientId:           mobile_app
+        clientSecret:       ""
+        scopes: [openid, profile, email, offline_access]
