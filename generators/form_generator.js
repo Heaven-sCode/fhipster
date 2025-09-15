@@ -44,10 +44,14 @@ function wrapInGridCol(widgetExpr) {
                 )`;
 }
 
-function generateFormTemplate(entityName, fields, parsedEnums = {}) {
+function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}) {
   const className = `${entityName}Form`;
   const controllerClass = `${entityName}Controller`;
   const instance = lcFirst(entityName);
+
+  const tenantIsolation = options.tenantIsolation || {};
+  const tenantEnabled = !!tenantIsolation.enabled && !!tenantIsolation.fieldName;
+  const tenantFieldName = tenantIsolation.fieldName;
 
   const thisFileBase = toFileName(entityName); // e.g., UserProfile -> user_profile
 
@@ -65,8 +69,8 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}) {
     .map(t => `import '../models/${toFileName(t)}_model.dart';`)
     .join('\n');
 
-  // Prepare widget builders for each field (skip 'id')
-  const formFields = fields.filter(f => f.name !== 'id');
+  // Prepare widget builders for each field (skip 'id' and tenant field when isolation active)
+  const formFields = fields.filter(f => f.name !== 'id' && !(tenantEnabled && f.name === tenantFieldName));
 
   const gridCols = formFields.map(f => {
     const n = f.name;

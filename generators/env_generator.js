@@ -94,6 +94,10 @@ class EnvConfig {
   // Plural overrides for API resources
   final Map<String, String> pluralOverrides;
 
+  // Tenant isolation
+  final bool tenantIsolationEnabled;
+  final String? tenantFieldName;
+
   const EnvConfig({
     // Identity
     required this.appName,
@@ -146,6 +150,10 @@ class EnvConfig {
 
     // Plural overrides
     required this.pluralOverrides,
+
+    // Tenant isolation
+    required this.tenantIsolationEnabled,
+    required this.tenantFieldName,
   });
 }
 
@@ -297,6 +305,9 @@ class Env {
     pinnedSha256Certs: ${JSON.stringify(dev.pinnedSha256Certs || []).replace(/"/g, '\'')},
 
     pluralOverrides: ${dartMap(dev.pluralOverrides || {})},
+
+    tenantIsolationEnabled: ${boolOr(dev.tenantIsolationEnabled, false)},
+    tenantFieldName: ${dartStringOrNull(dev.tenantFieldName || null)},
   );
 
   static EnvConfig _prod() => EnvConfig(
@@ -340,6 +351,9 @@ class Env {
     pinnedSha256Certs: ${JSON.stringify(prod.pinnedSha256Certs || dev.pinnedSha256Certs || []).replace(/"/g, '\'')},
 
     pluralOverrides: ${dartMap(prod.pluralOverrides || dev.pluralOverrides || {})},
+
+    tenantIsolationEnabled: ${boolOr(prod.tenantIsolationEnabled, dev.tenantIsolationEnabled || false)},
+    tenantFieldName: ${dartStringOrNull(prod.tenantFieldName || dev.tenantFieldName || null)},
   );
 
   static EnvConfig _default() => _dev();

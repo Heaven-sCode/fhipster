@@ -59,6 +59,10 @@ class EnvConfig {
   // Plural overrides for API resources
   final Map<String, String> pluralOverrides;
 
+  // Tenant isolation
+  final bool tenantIsolationEnabled;
+  final String? tenantFieldName;
+
   const EnvConfig({
     // Identity
     required this.appName,
@@ -111,6 +115,10 @@ class EnvConfig {
 
     // Plural overrides
     required this.pluralOverrides,
+
+    // Tenant isolation
+    required this.tenantIsolationEnabled,
+    required this.tenantFieldName,
   });
 }
 
@@ -262,6 +270,9 @@ class Env {
     pinnedSha256Certs: [],
 
     pluralOverrides: const {'person': 'people', 'address': 'addresses'},
+
+    tenantIsolationEnabled: false,
+    tenantFieldName: 'userId',
   );
 
   static EnvConfig _prod() => EnvConfig(
@@ -305,6 +316,9 @@ class Env {
     pinnedSha256Certs: [],
 
     pluralOverrides: const {'person': 'people', 'address': 'addresses'},
+
+    tenantIsolationEnabled: false,
+    tenantFieldName: 'userId',
   );
 
   static EnvConfig _default() => _dev();

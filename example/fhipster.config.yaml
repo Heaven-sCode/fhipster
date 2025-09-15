@@ -34,6 +34,10 @@ pluralOverrides:
   person: people
   address: addresses
 
+# Tenant isolation
+tenantIsolationEnabled: false
+tenantFieldName: userId
+
 # --- Profiles: dev & prod ---
 profiles:
   dev:

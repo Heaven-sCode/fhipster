@@ -184,6 +184,15 @@ function main() {
       const formF = formFileName(entityName);
       const viewF = tableViewFileName(entityName);
 
+      const tenantIsolation = {
+        enabled: !!devProfile.tenantIsolationEnabled && !!devProfile.tenantFieldName && Array.isArray(fields) && fields.some(f => f?.name === devProfile.tenantFieldName),
+        fieldName: devProfile.tenantFieldName,
+      };
+
+      if (devProfile.tenantIsolationEnabled && devProfile.tenantFieldName && !tenantIsolation.enabled) {
+        console.warn(`⚠️ Tenant isolation enabled but field '${devProfile.tenantFieldName}' not found on entity '${entityName}'.`);
+      }
+
       if (shouldGen('models')) {
         writeFile(path.join(dirs.modelsDir, modelF), generateModelTemplate(entityName, fields, enums), force, `models/${modelF}`);
       }
@@ -193,16 +202,17 @@ function main() {
           generateServiceTemplate(entityName, {
             microserviceName: devProfile.gatewayServiceName || microserviceName,
             useGateway: !!devProfile.useGateway,
+            tenantIsolation,
           }),
           force,
           `services/${serviceF}`
         );
       }
       if (shouldGen('controllers')) {
-        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums), force, `controllers/${controllerF}`);
+        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums, { tenantIsolation }), force, `controllers/${controllerF}`);
       }
       if (shouldGen('forms')) {
-        writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums), force, `forms/${formF}`);
+        writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums, { tenantIsolation }), force, `forms/${formF}`);
       }
       if (shouldGen('views')) {
         writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities), force, `views/${viewF}`);
@@ -294,6 +304,9 @@ function buildProfilesFromYaml(yamlConfig, argv) {
     pinnedSha256Certs: yamlConfig.pinnedSha256Certs || [],
 
     pluralOverrides: yamlConfig.pluralOverrides || {},
+
+    tenantIsolationEnabled: yamlConfig.tenantIsolationEnabled ?? false,
+    tenantFieldName: yamlConfig.tenantFieldName || null,
   };
 
   // CLI quick overrides
@@ -357,6 +370,9 @@ function normalizeProfile(pIn, base, hard = {}) {
       ...(base.pluralOverrides || {}),
       ...(pIn.pluralOverrides || {}),
     },
+
+    tenantIsolationEnabled: valueOrBool(pIn.tenantIsolationEnabled, base.tenantIsolationEnabled),
+    tenantFieldName: valueOr(pIn.tenantFieldName, base.tenantFieldName),
   };
 }
 
@@ -463,6 +479,9 @@ function normalizeYaml(data) {
     pinnedSha256Certs: root.pinnedSha256Certs || proj.pinnedSha256Certs,
 
     pluralOverrides: root.pluralOverrides || proj.pluralOverrides || {},
+
+    tenantIsolationEnabled: pickBool(root.tenantIsolationEnabled, proj.tenantIsolationEnabled, undefined),
+    tenantFieldName: root.tenantFieldName || proj.tenantFieldName,
 
     profiles: root.profiles || proj.profiles || {},
 

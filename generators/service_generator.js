@@ -7,9 +7,16 @@
 // - Uses ApiClient (GetConnect) for auth + refresh
 //
 // Usage:
-//   writeFile(..., generateServiceTemplate('Order', { microserviceName, useGateway }), ...)
+//   writeFile(..., generateServiceTemplate('Order', { microserviceName, useGateway, tenantIsolation }), ...)
 
-function generateServiceTemplate(entityName, { microserviceName = 'app', useGateway = false } = {}) {
+function generateServiceTemplate(
+  entityName,
+  {
+    microserviceName = 'app',
+    useGateway = false,
+    tenantIsolation = {},
+  } = {}
+) {
   const className = `${entityName}Service`;
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
@@ -18,8 +25,44 @@ function generateServiceTemplate(entityName, { microserviceName = 'app', useGate
   // If useGateway was passed at generation time, bake the provided microserviceName; else null.
   const microOverrideInit = useGateway ? `'${microserviceName}'` : 'null';
 
+  const tenantEnabled = !!tenantIsolation.enabled && !!tenantIsolation.fieldName;
+  const tenantImport = tenantEnabled ? "import '../core/auth/auth_service.dart';\n" : '';
+  const tenantMembers = tenantEnabled
+    ? `  final AuthService _auth = Get.find<AuthService>();\n` +
+      `  String? get _tenantField => (Env.get().tenantIsolationEnabled ? Env.get().tenantFieldName : null);\n` +
+      `  String? get _tenantValue {\n    final value = _auth.username.value;\n    if (value == null || value.isEmpty) return null;\n    return value;\n  }\n`
+    : '';
+  const applyTenantMethod = tenantEnabled
+    ? `
+  Map<String, dynamic> _applyTenant(Map<String, dynamic> query) {
+    final field = _tenantField;
+    final value = _tenantValue;
+    if (field == null || field.isEmpty || value == null || value.isEmpty) {
+      return query;
+    }
+    final key = '\${field}.equals';
+    if (!query.containsKey(key)) {
+      query[key] = value;
+    }
+    return query;
+  }
+
+  Map<String, dynamic> _applyTenantPayload(Map<String, dynamic> data) {
+    final field = _tenantField;
+    final value = _tenantValue;
+    if (field == null || field.isEmpty || value == null || value.isEmpty) {
+      return data;
+    }
+    data[field] = value;
+    return data;
+  }
+
+`
+    : '';
+  const applyTenantCall = tenantEnabled ? '_applyTenant(q)' : 'q';
+
   return `import 'package:get/get.dart';
-import '../core/api_client.dart';
+${tenantImport}import '../core/api_client.dart';
 import '../core/env/env.dart';
 import '../models/${lcFirst(entityName)}_model.dart';
 
@@ -32,6 +75,7 @@ class PagedResult<T> {
 
 class ${className} {
   final ApiClient _api = Get.find<ApiClient>();
+${tenantMembers ? '\n' + tenantMembers : ''}
 
   // Resolve paths using Env; allow per-service gateway override baked at generation time.
   final String? _micro = ${microOverrideInit};
@@ -164,7 +208,7 @@ class ${className} {
   }
 
   Future<${modelClass}> create(${modelClass} body) async {
-    final res = await _api.post(_base, body.toJson());
+    final res = await _api.post(_base, ${tenantEnabled ? '_applyTenantPayload(body.toJson())' : 'body.toJson()'});
     if (!res.isOk) _throwHttp(res);
     return ${modelClass}.fromJson(Map<String, dynamic>.from(res.body));
   }
@@ -174,7 +218,7 @@ class ${className} {
     if (id == null) {
       throw Exception('${modelClass}.update requires non-null id');
     }
-    final res = await _api.put('\${_base}/\${Uri.encodeComponent(id.toString())}', body.toJson());
+    final res = await _api.put('\${_base}/\${Uri.encodeComponent(id.toString())}', ${tenantEnabled ? '_applyTenantPayload(body.toJson())' : 'body.toJson()'});
     if (!res.isOk) _throwHttp(res);
     return ${modelClass}.fromJson(Map<String, dynamic>.from(res.body));
   }
@@ -184,7 +228,7 @@ class ${className} {
     final res = await _api.request(
       '\${_base}/\${Uri.encodeComponent(id.toString())}',
       'PATCH',
-      body: patchBody,
+      body: ${tenantEnabled ? '_applyTenantPayload(Map<String, dynamic>.from(patchBody))' : 'patchBody'},
       headers: {'Content-Type': 'application/merge-patch+json'},
     );
     if (!res.isOk) _throwHttp(res);
@@ -243,9 +287,10 @@ class ${className} {
       });
     }
 
-    return q;
+    return ${tenantEnabled ? '_applyTenant(q)' : 'q'};
   }
 
+${tenantEnabled ? applyTenantMethod : ''}
   List<dynamic> _extractContentArray(dynamic body) {
     if (body is List) return body;
     if (body is Map && body['content'] is List) return List<dynamic>.from(body['content']);

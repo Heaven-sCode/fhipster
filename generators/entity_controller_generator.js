@@ -21,11 +21,15 @@ const { jdlToDartType, isBooleanType, isEnumType, isDateType, isNumericType } = 
 
 function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
 
-function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}) {
+function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, options = {}) {
   const className = `${entityName}Controller`;
   const modelClass = `${entityName}Model`;
   const serviceClass = `${entityName}Service`;
   const instance = lcFirst(entityName);
+
+  const tenantIsolation = options.tenantIsolation || {};
+  const tenantEnabled = !!tenantIsolation.enabled && !!tenantIsolation.fieldName;
+  const tenantFieldName = tenantIsolation.fieldName;
 
   // Relationships
   const rels = fields.filter(f => f.isRelationship);
@@ -47,7 +51,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}) 
   const enumImports = enumTypesUsed.map(e => `import '../enums/${lcFirst(e)}_enum.dart';`).join('\n');
 
   // TextEditingControllers for primitive (non-rel) inputs
-  const primFields = fields.filter(f => !f.isRelationship && f.name !== 'id');
+  const primFields = fields.filter(f => !f.isRelationship && f.name !== 'id' && !(tenantEnabled && f.name === tenantFieldName));
   const textCtlDecls = primFields.map(f => {
     const cat = categorizeField(f, parsedEnums);
     if (cat === 'bool') {
@@ -84,6 +88,9 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}) 
   // init form from model
   const fillFormLines = primFields.map(f => {
     const n = f.name;
+    if (tenantEnabled && n === tenantFieldName) {
+      return `      ${n}: _editing.value?.${n},`;
+    }
     const cat = categorizeField(f, parsedEnums);
     if (cat === 'bool') return `    ${n}.value = m?.${n} ?? false;`;
     if (cat === 'enum') return `    ${n}.value = m?.${n};`;
@@ -97,6 +104,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}) 
   // build model from form
   const buildModelLines = fields.map(f => {
     const n = f.name;
+    if (tenantEnabled && n === tenantFieldName) return `      ${n}: _editing.value?.${n},`;
     if (n === 'id') return `      id: _editing.value?.id,`;
     if (f.isRelationship) {
       const t = (f.relationshipType || '').toLowerCase();
