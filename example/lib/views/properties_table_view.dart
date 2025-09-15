@@ -268,7 +268,15 @@ class PropertiesTableView extends GetView<PropertiesController> {
 
   void _quickCreateMediaAssetsMediaAssets(BuildContext context, PropertiesModel parent) {
     if ((parent.id ?? null) == null) {
-      Get.snackbar('Error'.tr, 'Save the  Properties before creating related  Media Assets'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 3));
+      Get.snackbar(
+        'Error'.tr,
+        'error.saveParentFirst'.trParams({
+          'parent': 'Properties',
+          'child': 'Media Assets',
+        }),
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 3),
+      );
       return;
     }
     if (!Get.isRegistered<MediaAssetsController>()) Get.put(MediaAssetsController());

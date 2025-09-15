@@ -14,7 +14,8 @@ function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 function labelize(fieldName) {
   return String(fieldName)
     .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (c) => c.toUpperCase());
+    .replace(/^./, (c) => c.toUpperCase())
+    .trim();
 }
 const { toFileName } = require('../utils/naming');
 
@@ -355,7 +356,15 @@ ${detailRows}
 ${childRelInfos.map(info => `
   void _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) {
     if ((parent.id ?? null) == null) {
-      Get.snackbar('Error'.tr, 'Save the ${labelize(entityName)} before creating related ${labelize(info.childEntity)}'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 3));
+      Get.snackbar(
+        'Error'.tr,
+        'error.saveParentFirst'.trParams({
+          'parent': '${labelize(entityName)}',
+          'child': '${labelize(info.childEntity)}',
+        }),
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 3),
+      );
       return;
     }
     if (!Get.isRegistered<${info.childController}>()) Get.put(${info.childController}());
