@@ -13,6 +13,7 @@ class PagedResult<T> {
 class PropertiesService {
   final ApiClient _api = Get.find<ApiClient>();
 
+
   // Resolve paths using Env; allow per-service gateway override baked at generation time.
   final String? _micro = 'operationsModule';
   late final String _plural = Env.get().pluralFor('Properties');
@@ -225,6 +226,7 @@ class PropertiesService {
 
     return q;
   }
+
 
   List<dynamic> _extractContentArray(dynamic body) {
     if (body is List) return body;

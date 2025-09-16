@@ -1,5 +1,6 @@
 # FHipster config (YAML)
 emitMain: true
+enableSQLite: true
 
 # --- Inputs used by the generator itself ---
 jdlFile: ./JDL/app.jdl

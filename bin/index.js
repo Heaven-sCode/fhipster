@@ -32,6 +32,7 @@ const { generateFormTemplate } = require('../generators/form_generator');
 const { generateTableViewTemplate } = require('../generators/table_view_generator');
 const { generateTableWidgetsTemplates } = require('../generators/table_widgets_generator');
 const { generateFHipsterInputFieldTemplate } = require('../generators/fhipster_input_field_generator');
+const { generateLocalDatabaseTemplate, generateDaoTemplate } = require('../generators/sqlite_generator');
 
 const { generateLoginControllerTemplate } = require('../generators/login_controller_generator');
 const { generateLoginViewTemplate } = require('../generators/login_view_generator');
@@ -81,6 +82,8 @@ function main() {
 
   // YAML
   const yamlConfig = loadYamlConfig(argv.config);
+
+  const enableSQLite = yamlConfig.enableSQLite ?? false;
 
   // Inputs
   const jdlFilePath = resolveJdlPath(argv._[0] || yamlConfig.jdlFile);
@@ -150,6 +153,27 @@ function main() {
     writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
   }
 
+  if (enableSQLite) {
+    console.log('• Generating local SQLite cache ...');
+    const entityNames = entities ? Object.keys(entities) : [];
+    writeFile(
+      path.join(dirs.localDir, 'local_database.dart'),
+      generateLocalDatabaseTemplate(entityNames),
+      force,
+      'core/local/local_database.dart'
+    );
+
+    entityNames.forEach((entityName) => {
+      const daoContent = generateDaoTemplate(entityName);
+      writeFile(
+        path.join(dirs.localDaoDir, `${entityFileBase(entityName)}_dao.dart`),
+        daoContent,
+        force,
+        path.join('core/local/dao', `${entityFileBase(entityName)}_dao.dart`)
+      );
+    });
+  }
+
   // Widgets
   if (shouldGen('widgets')) {
     console.log('• Generating common widgets ...');
@@ -203,6 +227,7 @@ function main() {
             microserviceName: devProfile.gatewayServiceName || microserviceName,
             useGateway: !!devProfile.useGateway,
             tenantIsolation,
+            enableSQLite,
           }),
           force,
           `services/${serviceF}`
@@ -260,7 +285,7 @@ function main() {
   // main.dart
   if (emitMain && shouldGen('main')) {
     console.log('• Generating main.dart ...');
-    writeFile(path.join(dirs.libDir, 'main.dart'), generateMainDartTemplate(), force, 'main.dart');
+    writeFile(path.join(dirs.libDir, 'main.dart'), generateMainDartTemplate({ enableSQLite }), force, 'main.dart');
   }
 
   console.log('\n✅ Generation complete!');
@@ -394,6 +419,8 @@ function resolveDirs(rootOut) {
     widgetsTableDir: path.join(libDir, 'widgets', 'table'),
     widgetsCommonDir: path.join(libDir, 'widgets', 'common'),
     enumsDir: path.join(libDir, 'enums'),
+    localDir: path.join(libDir, 'core', 'local'),
+    localDaoDir: path.join(libDir, 'core', 'local', 'dao'),
   };
 }
 
@@ -412,6 +439,8 @@ function ensureDirs(dirs) {
     dirs.widgetsTableDir,
     dirs.widgetsCommonDir,
     dirs.enumsDir,
+    dirs.localDir,
+    dirs.localDaoDir,
   ].forEach((d) => fs.mkdirSync(d, { recursive: true }));
 }
 
@@ -444,6 +473,7 @@ function normalizeYaml(data) {
   const proj = root.project || {};
 
   return {
+    enableSQLite: pickBool(root.enableSQLite, proj.enableSQLite, false) ?? false,
     jdlFile: root.jdlFile || proj.jdlFile,
     outputDir: root.outputDir || proj.outputDir,
     microservice: root.microservice || proj.microservice,

@@ -6,6 +6,8 @@ import 'core/env/env.dart';
 import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
+import 'core/local/local_database.dart';
+
 
 // Select runtime profile at launch:
 //   flutter run -t lib/main.dart
@@ -15,6 +17,8 @@ const _profile = String.fromEnvironment('ENV', defaultValue: 'dev');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
+  await LocalDatabase.instance.database;
+  
 
   // Initialize baked profiles and select one
   Env.initGenerated();

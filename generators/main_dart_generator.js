@@ -1,6 +1,11 @@
 // generators/main_dart_generator.js
 
-function generateMainDartTemplate() {
+function generateMainDartTemplate({ enableSQLite = false } = {}) {
+  const sqliteImports = enableSQLite ? "import 'core/local/local_database.dart';\n" : '';
+  const sqliteInit = enableSQLite
+    ? `  await LocalDatabase.instance.database;\n`
+    : '';
+
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -9,6 +14,7 @@ import 'core/env/env.dart';
 import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
+${sqliteImports}
 
 // Select runtime profile at launch:
 //   flutter run -t lib/main.dart
@@ -18,6 +24,7 @@ const _profile = String.fromEnvironment('ENV', defaultValue: 'dev');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GetStorage.init();
+${sqliteInit}  
 
   // Initialize baked profiles and select one
   Env.initGenerated();
