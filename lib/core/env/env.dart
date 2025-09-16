@@ -6,10 +6,35 @@ import 'package:get/get.dart';
 enum AuthProvider { keycloak, jhipsterJwt }
 enum RelationshipPayloadMode { idOnly, fullObject }
 
+class ThemePalette {
+  final int primary;
+  final int secondary;
+  final int accent;
+
+  const ThemePalette({
+    required this.primary,
+    required this.secondary,
+    required this.accent,
+  });
+}
+
+class ThemeConfig {
+  final ThemePalette light;
+  final ThemePalette dark;
+
+  const ThemeConfig({
+    required this.light,
+    required this.dark,
+  });
+}
+
 class EnvConfig {
   // Identity
   final String appName;
   final String envName;
+
+  // Theme
+  final ThemeConfig theme;
 
   // Networking
   final String apiHost;
@@ -70,6 +95,9 @@ class EnvConfig {
     // Identity
     required this.appName,
     required this.envName,
+
+    // Theme
+    required this.theme,
 
     // Networking
     required this.apiHost,
@@ -238,6 +266,18 @@ class Env {
   static EnvConfig _dev() => EnvConfig(
     appName: 'Operations (DEV)',
     envName: 'dev',
+    theme: ThemeConfig(
+      light: ThemePalette(
+        primary: 0xFF2D6CDF,
+        secondary: 0xFF1B48B2,
+        accent: 0xFF0B6EFD,
+      ),
+      dark: ThemePalette(
+        primary: 0xFF8AB4F8,
+        secondary: 0xFF5F85DB,
+        accent: 0xFF4C8CF6,
+      ),
+    ),
     apiHost: 'http://34.50.81.155:8080',
     useGateway: true,
     gatewayServiceName: 'operationsModule',
@@ -286,6 +326,18 @@ class Env {
   static EnvConfig _prod() => EnvConfig(
     appName: 'Operations',
     envName: 'prod',
+    theme: ThemeConfig(
+      light: ThemePalette(
+        primary: 0xFF2D6CDF,
+        secondary: 0xFF1B48B2,
+        accent: 0xFF0B6EFD,
+      ),
+      dark: ThemePalette(
+        primary: 0xFF8AB4F8,
+        secondary: 0xFF5F85DB,
+        accent: 0xFF4C8CF6,
+      ),
+    ),
     apiHost: 'https://api.example.com',
     useGateway: true,
     gatewayServiceName: 'operationsModule',

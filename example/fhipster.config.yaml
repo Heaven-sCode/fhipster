@@ -2,6 +2,16 @@
 emitMain: true
 enableSQLite: true
 
+theme:
+  light:
+    primary: '#2D6CDF'
+    secondary: '#1B48B2'
+    accent: '#0B6EFD'
+  dark:
+    primary: '#8AB4F8'
+    secondary: '#5F85DB'
+    accent: '#4C8CF6'
+
 # --- Inputs used by the generator itself ---
 jdlFile: ./JDL/app.jdl
 outputDir: ./lib

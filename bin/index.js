@@ -25,6 +25,7 @@ const { generateSyncServiceTemplate } = require('../generators/sync_service_gene
 const { generateSamplePubspec } = require('../generators/pubspec_generator');
 
 const { generateAppShellTemplate } = require('../generators/app_shell_generator');
+const { generateAppThemeTemplate } = require('../generators/theme_generator');
 const { generateRoutesTemplate } = require('../generators/routes_generator');
 
 const { generateEnumTemplate } = require('../generators/enum_generator');
@@ -162,6 +163,12 @@ function main() {
     writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
 
     writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
+    writeFile(
+      path.join(dirs.coreThemeDir, 'app_theme.dart'),
+      generateAppThemeTemplate(),
+      force,
+      'core/theme/app_theme.dart'
+    );
 
     writeFile(
       path.join(dirs.coreConnectivityDir, 'connectivity_service.dart'),
@@ -323,6 +330,19 @@ function main() {
 
 // ---------- Profiles ----------
 
+const DEFAULT_THEME = {
+  light: {
+    primary: '0xFF2D6CDF',
+    secondary: '0xFF1B48B2',
+    accent: '0xFF0B6EFD',
+  },
+  dark: {
+    primary: '0xFF8AB4F8',
+    secondary: '0xFF5F85DB',
+    accent: '0xFF4C8CF6',
+  },
+};
+
 function buildProfilesFromYaml(yamlConfig, argv) {
   const base = {
     appName: yamlConfig.appName ?? 'FHipster',
@@ -359,6 +379,7 @@ function buildProfilesFromYaml(yamlConfig, argv) {
     tenantFieldName: yamlConfig.tenantFieldName || null,
 
     syncIntervalMinutes: yamlConfig.syncIntervalMinutes ?? 15,
+    theme: normalizeTheme(yamlConfig.theme, DEFAULT_THEME),
   };
 
   // CLI quick overrides
@@ -427,7 +448,69 @@ function normalizeProfile(pIn, base, hard = {}) {
     tenantFieldName: valueOr(pIn.tenantFieldName, base.tenantFieldName),
 
     syncIntervalMinutes: valueOrNum(pIn.syncIntervalMinutes, base.syncIntervalMinutes),
+
+    theme: normalizeTheme(pIn.theme, base.theme || DEFAULT_THEME),
   };
+}
+
+function normalizeTheme(themeIn, fallback = DEFAULT_THEME) {
+  const provided = themeIn || {};
+  const base = fallback && typeof fallback === 'object' ? fallback : DEFAULT_THEME;
+
+  const baseLight = base.light || DEFAULT_THEME.light;
+  const baseDark = base.dark || DEFAULT_THEME.dark;
+
+  const lightIn = provided.light || {};
+  const darkIn = provided.dark || {};
+
+  return {
+    light: {
+      primary: parseColor(lightIn.primary, baseLight.primary),
+      secondary: parseColor(lightIn.secondary, baseLight.secondary),
+      accent: parseColor(lightIn.accent, baseLight.accent),
+    },
+    dark: {
+      primary: parseColor(darkIn.primary, baseDark.primary || baseLight.primary),
+      secondary: parseColor(darkIn.secondary, baseDark.secondary || baseLight.secondary),
+      accent: parseColor(darkIn.accent, baseDark.accent || baseLight.accent),
+    },
+  };
+}
+
+function parseColor(value, fallback) {
+  const defaultFallback = typeof fallback === 'string' && fallback.trim()
+    ? fallback.trim()
+    : '0xFF2D6CDF';
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const hex = value.toString(16).toUpperCase().padStart(8, '0');
+    return `0x${hex}`;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return defaultFallback;
+    }
+
+    let hex = trimmed.replace(/^#/, '').replace(/^0x/i, '');
+    const isSix = /^[0-9a-fA-F]{6}$/.test(hex);
+    const isEight = /^[0-9a-fA-F]{8}$/.test(hex);
+    if (!isSix && !isEight) {
+      return defaultFallback;
+    }
+    if (hex.length === 6) {
+      hex = `FF${hex}`;
+    }
+    return `0x${hex.toUpperCase()}`;
+  }
+
+  if (typeof defaultFallback === 'number' && Number.isFinite(defaultFallback)) {
+    const hex = defaultFallback.toString(16).toUpperCase().padStart(8, '0');
+    return `0x${hex}`;
+  }
+
+  return defaultFallback;
 }
 
 // ---------- YAML / FS helpers ----------
@@ -440,6 +523,7 @@ function resolveDirs(rootOut) {
     coreDir: path.join(libDir, 'core'),
     coreAuthDir: path.join(libDir, 'core', 'auth'),
     coreEnvDir: path.join(libDir, 'core', 'env'),
+    coreThemeDir: path.join(libDir, 'core', 'theme'),
     coreConnectivityDir: path.join(libDir, 'core', 'connectivity'),
     coreSyncDir: path.join(libDir, 'core', 'sync'),
     modelsDir: path.join(libDir, 'models'),
@@ -462,6 +546,7 @@ function ensureDirs(dirs) {
     dirs.coreDir,
     dirs.coreAuthDir,
     dirs.coreEnvDir,
+    dirs.coreThemeDir,
     dirs.modelsDir,
     dirs.servicesDir,
     dirs.controllersDir,
@@ -548,6 +633,7 @@ function normalizeYaml(data) {
     tenantFieldName: root.tenantFieldName || proj.tenantFieldName,
 
     profiles: root.profiles || proj.profiles || {},
+    theme: root.theme || proj.theme,
 
     // Optional passthroughs for partial gen
     only: root.only || proj.only,

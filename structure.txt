@@ -8,6 +8,7 @@ fhipster/
 │  ├─ lib/
 │  │  ├─ controllers/
 │  │  ├─ core/
+│  │  │  └─ theme/
 │  │  ├─ enums/
 │  │  ├─ forms/
 │  │  ├─ main.dart
@@ -26,6 +27,7 @@ fhipster/
 ├─ lib/
 │  ├─ controllers/
 │  ├─ core/
+│  │  └─ theme/
 │  ├─ enums/
 │  ├─ forms/
 │  ├─ main.dart
@@ -63,6 +65,7 @@ fhipster/
 │  ├─ sync_service_generator.js            # Background sync orchestration
 │  ├─ table_view_generator.js              # search + pagination + horiz scroll + view/edit/delete popups
 │  ├─ table_widgets_generator.js           # SearchField, PaginationBar, Toolbar
+│  ├─ theme_generator.js                   # AppTheme scaffolding (light/dark palettes)
 │  ├─ token_decoder_generator.js           # JWT → claims
 │  ├─ translations_generator.js            # i18n ARB bundle builder
 │  └─ unauthorized_view_generator.js

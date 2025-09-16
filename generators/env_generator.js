@@ -28,6 +28,32 @@ function relMode(value) {
   return v === 'fullobject' ? 'RelationshipPayloadMode.fullObject' : 'RelationshipPayloadMode.idOnly';
 }
 
+function themeLiteral(theme) {
+  const safeTheme = theme || {};
+  const light = safeTheme.light || {};
+  const dark = safeTheme.dark || {};
+  const pick = (value, fallback) => (value !== undefined && value !== null ? value : fallback);
+  const lp = pick(light.primary, '0xFF2D6CDF');
+  const ls = pick(light.secondary, lp);
+  const la = pick(light.accent, lp);
+  const dp = pick(dark.primary, lp);
+  const ds = pick(dark.secondary, ls);
+  const da = pick(dark.accent, la);
+
+  return `ThemeConfig(
+      light: ThemePalette(
+        primary: ${lp},
+        secondary: ${ls},
+        accent: ${la},
+      ),
+      dark: ThemePalette(
+        primary: ${dp},
+        secondary: ${ds},
+        accent: ${da},
+      ),
+    )`;
+}
+
 function generateEnvTemplate({ devProfile, prodProfile }) {
   const dev = devProfile || {};
   const prod = prodProfile || {};
@@ -41,10 +67,35 @@ import 'package:get/get.dart';
 enum AuthProvider { keycloak, jhipsterJwt }
 enum RelationshipPayloadMode { idOnly, fullObject }
 
+class ThemePalette {
+  final int primary;
+  final int secondary;
+  final int accent;
+
+  const ThemePalette({
+    required this.primary,
+    required this.secondary,
+    required this.accent,
+  });
+}
+
+class ThemeConfig {
+  final ThemePalette light;
+  final ThemePalette dark;
+
+  const ThemeConfig({
+    required this.light,
+    required this.dark,
+  });
+}
+
 class EnvConfig {
   // Identity
   final String appName;
   final String envName;
+
+  // Theme
+  final ThemeConfig theme;
 
   // Networking
   final String apiHost;
@@ -105,6 +156,9 @@ class EnvConfig {
     // Identity
     required this.appName,
     required this.envName,
+
+    // Theme
+    required this.theme,
 
     // Networking
     required this.apiHost,
@@ -273,6 +327,7 @@ class Env {
   static EnvConfig _dev() => EnvConfig(
     appName: ${dartStringOrNull(dev.appName || 'FHipster')},
     envName: ${dartStringOrNull(dev.envName || 'dev')},
+    theme: ${themeLiteral(dev.theme)},
     apiHost: ${dartStringOrNull(dev.apiHost || 'http://localhost:8080')},
     useGateway: ${boolOr(dev.useGateway, false)},
     gatewayServiceName: ${dartStringOrNull(dev.gatewayServiceName || null)},
@@ -321,6 +376,7 @@ class Env {
   static EnvConfig _prod() => EnvConfig(
     appName: ${dartStringOrNull(prod.appName || dev.appName || 'FHipster')},
     envName: ${dartStringOrNull(prod.envName || 'prod')},
+    theme: ${themeLiteral(prod.theme)},
     apiHost: ${dartStringOrNull(prod.apiHost || dev.apiHost || 'http://localhost:8080')},
     useGateway: ${boolOr(prod.useGateway, dev.useGateway || false)},
     gatewayServiceName: ${dartStringOrNull(prod.gatewayServiceName || dev.gatewayServiceName || null)},

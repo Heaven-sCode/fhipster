@@ -13,6 +13,7 @@ import 'core/env/env.dart';
 import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
+import 'core/theme/app_theme.dart';
 ${connectivityImport}${sqliteImports}${syncImport}
 
 // Select runtime profile at launch:
@@ -51,10 +52,9 @@ class FHipsterApp extends StatelessWidget {
       initialRoute: AppRoutes.splash,
       getPages: AppRoutes.pages,
       defaultTransition: Transition.fadeIn,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF2D6CDF),
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
     );
   }
 }

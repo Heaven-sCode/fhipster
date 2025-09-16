@@ -29,6 +29,7 @@
   - `core/api_client.dart` — GetConnect; injects `Authorization`, 401 auto-refresh
   - `core/auth/*` — `AuthService`, `AuthMiddleware`, `RoleMiddleware`, `token_decoder.dart`
   - `core/app_shell.dart` — responsive shell (web & mobile)
+  - `core/theme/app_theme.dart` — Material 3 light/dark theme driven by config palettes
   - `core/routes.dart` — GetX routes (Splash, Login, Home, 401, 403, + per-entity)
   - *(optional)* `main.dart` — if `emitMain: true` in your config
 
@@ -94,6 +95,7 @@ fhipster <jdl-file> --microservice <name> [options]
 - `enableSQLite: true` → opt-in to local cache, background sync and generated `SyncService`
 - `tenantIsolationEnabled: true` + `tenantFieldName: userId` → auto-filter every REST call by user/tenant field
 - `syncIntervalMinutes: 15` → schedule periodic background sync (default 15 minutes)
+- `theme.light|dark.primary|secondary|accent` → define hex colors for the generated `AppTheme`
 
 **Examples**
 
@@ -118,6 +120,8 @@ lib/
     app_shell.dart
     api_client.dart
     routes.dart
+    theme/
+      app_theme.dart
     env/
       env.dart
     auth/
