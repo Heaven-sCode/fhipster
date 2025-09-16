@@ -1,34 +1,68 @@
 fhipster/
 ├─ bin/
 │  └─ index.js
+├─ example/
+│  ├─ JDL/
+│  │  ├─ app.jdl
+│  │  └─ app.png
+│  ├─ lib/
+│  │  ├─ controllers/
+│  │  ├─ core/
+│  │  ├─ enums/
+│  │  ├─ forms/
+│  │  ├─ main.dart
+│  │  ├─ models/
+│  │  ├─ services/
+│  │  ├─ views/
+│  │  └─ widgets/
+│  ├─ fhipster.config.yaml
+│  ├─ pubspec.offline_sample.yaml
+│  └─ run.sh
 ├─ package.json
 ├─ parser/
 │  ├─ index.js
 │  ├─ type_mapping.js
 │  └─ relationship_mapping.js
+├─ lib/
+│  ├─ controllers/
+│  ├─ core/
+│  ├─ enums/
+│  ├─ forms/
+│  ├─ main.dart
+│  ├─ models/
+│  ├─ services/
+│  ├─ views/
+│  └─ widgets/
 ├─ utils/
 │  ├─ file_writer.js
 │  └─ naming.js
 ├─ generators/
 │  ├─ api_client_generator.js
 │  ├─ app_shell_generator.js
-│  ├─ routes_generator.js
-│  ├─ enum_generator.js
-│  ├─ model_generator.js
-│  ├─ service_generator.js                 # GET/POST/PUT/PATCH/DELETE + JPA filters + ES search
+│  ├─ auth_middleware_generator.js         # GetMiddleware (require auth)
+│  ├─ auth_service_generator.js            # GetxService (claims, helpers, logout)
+│  ├─ connectivity_service_generator.js    # GetxService for connectivity tracking + persistence
 │  ├─ entity_controller_generator.js       # paging/search/relations, dialogs
+│  ├─ enum_generator.js
+│  ├─ env_generator.js                     # EnvConfig profiles + security flags
+│  ├─ fhipster_input_field_generator.js    # Form field widgets for primitive/relationship types
+│  ├─ forbidden_view_generator.js
 │  ├─ form_generator.js                    # ResponsiveGrid; single/multi relation inputs
-│  ├─ table_view_generator.js              # search + pagination + horiz scroll + view/edit/delete popups
-│  ├─ table_widgets_generator.js           # SearchField, PaginationBar, Toolbar
-│  ├─ fhipster_input_field_generator.js
+│  ├─ home_view_generator.js
 │  ├─ login_controller_generator.js
 │  ├─ login_view_generator.js
+│  ├─ main_dart_generator.js               # lib/main.dart bootstrap wiring
+│  ├─ model_generator.js
+│  ├─ pubspec_generator.js                 # Flutter pubspec from JDL metadata
+│  ├─ role_middleware_generator.js         # GetMiddleware (role/authority checks)
+│  ├─ routes_generator.js
+│  ├─ service_generator.js                 # GET/POST/PUT/PATCH/DELETE + JPA filters + ES search
 │  ├─ splash_controller_generator.js
 │  ├─ splash_view_generator.js
-│  ├─ home_view_generator.js
-│  ├─ auth_middleware_generator.js         # GetMiddleware (require auth)
-│  ├─ role_middleware_generator.js         # GetMiddleware (role/authority checks)
-│  ├─ auth_service_generator.js            # GetxService (claims, helpers, logout)
+│  ├─ sqlite_generator.js                  # Offline persistence scaffolding
+│  ├─ sync_service_generator.js            # Background sync orchestration
+│  ├─ table_view_generator.js              # search + pagination + horiz scroll + view/edit/delete popups
+│  ├─ table_widgets_generator.js           # SearchField, PaginationBar, Toolbar
 │  ├─ token_decoder_generator.js           # JWT → claims
-│  ├─ unauthorized_view_generator.js
-│  └─ forbidden_view_generator.js
+│  ├─ translations_generator.js            # i18n ARB bundle builder
+│  └─ unauthorized_view_generator.js

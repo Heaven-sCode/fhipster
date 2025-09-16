@@ -1,7 +1,7 @@
 {
   "name": "fhipster",
-  "version": "1.1.12",
-  "description": "A CLI tool to convert JHipster JDL to Flutter GetX services and models.",
+  "version": "1.1.14",
+  "description": "Turns JHipster dreams into Flutter reality: generate GetX apps, offline-ready services, and synchronized experiences from a single JDL spell.",
   "main": "bin/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -22,6 +22,10 @@
   "files": [
     "bin/",
     "generators/",
+    "example/",
+    "lib/",
+    "parser/",
+    
     "parser/",
     "utils/",
     "README.md",
@@ -40,5 +44,5 @@
   "bugs": {
     "url": "https://github.com/Heaven-sCode/fhipster/issues"
   },
-  "homepage": "https://github.com/Heaven-sCode/fhipster#readme"
+  "homepage": "https://github.com/Heaven-sCode/fhipster/wiki"
 }
