@@ -98,6 +98,9 @@ class EnvConfig {
   final bool tenantIsolationEnabled;
   final String? tenantFieldName;
 
+  // Sync interval
+  final Duration syncInterval;
+
   const EnvConfig({
     // Identity
     required this.appName,
@@ -154,6 +157,9 @@ class EnvConfig {
     // Tenant isolation
     required this.tenantIsolationEnabled,
     required this.tenantFieldName,
+
+    // Sync interval
+    required this.syncInterval,
   });
 }
 
@@ -308,6 +314,8 @@ class Env {
 
     tenantIsolationEnabled: ${boolOr(dev.tenantIsolationEnabled, false)},
     tenantFieldName: ${dartStringOrNull(dev.tenantFieldName || null)},
+
+    syncInterval: Duration(minutes: ${(dev.syncIntervalMinutes ?? 15)}),
   );
 
   static EnvConfig _prod() => EnvConfig(
@@ -354,6 +362,8 @@ class Env {
 
     tenantIsolationEnabled: ${boolOr(prod.tenantIsolationEnabled, dev.tenantIsolationEnabled || false)},
     tenantFieldName: ${dartStringOrNull(prod.tenantFieldName || dev.tenantFieldName || null)},
+
+    syncInterval: Duration(minutes: ${(prod.syncIntervalMinutes ?? dev.syncIntervalMinutes ?? 15)}),
   );
 
   static EnvConfig _default() => _dev();

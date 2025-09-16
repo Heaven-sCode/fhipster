@@ -63,6 +63,9 @@ class EnvConfig {
   final bool tenantIsolationEnabled;
   final String? tenantFieldName;
 
+  // Sync interval
+  final Duration syncInterval;
+
   const EnvConfig({
     // Identity
     required this.appName,
@@ -119,6 +122,9 @@ class EnvConfig {
     // Tenant isolation
     required this.tenantIsolationEnabled,
     required this.tenantFieldName,
+
+    // Sync interval
+    required this.syncInterval,
   });
 }
 
@@ -273,6 +279,8 @@ class Env {
 
     tenantIsolationEnabled: false,
     tenantFieldName: 'userId',
+
+    syncInterval: Duration(minutes: 15),
   );
 
   static EnvConfig _prod() => EnvConfig(
@@ -319,6 +327,8 @@ class Env {
 
     tenantIsolationEnabled: false,
     tenantFieldName: 'userId',
+
+    syncInterval: Duration(minutes: 15),
   );
 
   static EnvConfig _default() => _dev();

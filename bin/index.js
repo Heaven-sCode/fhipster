@@ -21,6 +21,7 @@ const { generateAuthMiddlewareTemplate } = require('../generators/auth_middlewar
 const { generateRoleMiddlewareTemplate } = require('../generators/role_middleware_generator');
 const { generateTokenDecoderTemplate } = require('../generators/token_decoder_generator');
 const { generateConnectivityServiceTemplate } = require('../generators/connectivity_service_generator');
+const { generateSyncServiceTemplate } = require('../generators/sync_service_generator');
 const { generateSamplePubspec } = require('../generators/pubspec_generator');
 
 const { generateAppShellTemplate } = require('../generators/app_shell_generator');
@@ -189,6 +190,13 @@ function main() {
         path.join('core/local/dao', `${entityFileBase(entityName)}_dao.dart`)
       );
     });
+
+    writeFile(
+      path.join(dirs.coreSyncDir, 'sync_service.dart'),
+      generateSyncServiceTemplate(entityNames),
+      force,
+      'core/sync/sync_service.dart'
+    );
   }
 
   // Widgets
@@ -349,6 +357,8 @@ function buildProfilesFromYaml(yamlConfig, argv) {
 
     tenantIsolationEnabled: yamlConfig.tenantIsolationEnabled ?? false,
     tenantFieldName: yamlConfig.tenantFieldName || null,
+
+    syncIntervalMinutes: yamlConfig.syncIntervalMinutes ?? 15,
   };
 
   // CLI quick overrides
@@ -415,6 +425,8 @@ function normalizeProfile(pIn, base, hard = {}) {
 
     tenantIsolationEnabled: valueOrBool(pIn.tenantIsolationEnabled, base.tenantIsolationEnabled),
     tenantFieldName: valueOr(pIn.tenantFieldName, base.tenantFieldName),
+
+    syncIntervalMinutes: valueOrNum(pIn.syncIntervalMinutes, base.syncIntervalMinutes),
   };
 }
 
@@ -429,6 +441,7 @@ function resolveDirs(rootOut) {
     coreAuthDir: path.join(libDir, 'core', 'auth'),
     coreEnvDir: path.join(libDir, 'core', 'env'),
     coreConnectivityDir: path.join(libDir, 'core', 'connectivity'),
+    coreSyncDir: path.join(libDir, 'core', 'sync'),
     modelsDir: path.join(libDir, 'models'),
     servicesDir: path.join(libDir, 'services'),
     controllersDir: path.join(libDir, 'controllers'),
@@ -459,6 +472,7 @@ function ensureDirs(dirs) {
     dirs.widgetsCommonDir,
     dirs.enumsDir,
     dirs.coreConnectivityDir,
+    dirs.coreSyncDir,
     dirs.localDir,
     dirs.localDaoDir,
   ].forEach((d) => fs.mkdirSync(d, { recursive: true }));
@@ -538,6 +552,8 @@ function normalizeYaml(data) {
     // Optional passthroughs for partial gen
     only: root.only || proj.only,
     skipParts: root.skipParts || proj.skipParts,
+
+    syncIntervalMinutes: root.syncIntervalMinutes ?? proj.syncIntervalMinutes,
   };
 }
 

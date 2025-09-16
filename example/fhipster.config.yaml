@@ -38,6 +38,7 @@ pluralOverrides:
 # Tenant isolation
 tenantIsolationEnabled: false
 tenantFieldName: userId
+syncIntervalMinutes: 15
 
 # --- Profiles: dev & prod ---
 profiles:
