@@ -7,8 +7,8 @@ import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
 import 'core/connectivity/connectivity_service.dart';
-
 import 'core/local/local_database.dart';
+import 'core/sync/sync_service.dart';
 
 
 // Select runtime profile at launch:
@@ -21,7 +21,6 @@ Future<void> main() async {
   await GetStorage.init();
   await LocalDatabase.instance.database;
   
-
   // Initialize baked profiles and select one
   Env.initGenerated();
   try {
@@ -33,6 +32,7 @@ Future<void> main() async {
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
   if (!Get.isRegistered<ConnectivityService>()) Get.put(ConnectivityService(), permanent: true);
+  if (!Get.isRegistered<SyncService>()) Get.put(SyncService(), permanent: true);
 
   runApp(const FHipsterApp());
 }

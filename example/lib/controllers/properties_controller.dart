@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../core/env/env.dart';
+import '../core/sync/sync_service.dart';
 import '../models/properties_model.dart';
 import '../services/properties_service.dart';
 import '../models/mediaAssets_model.dart';
@@ -56,6 +57,10 @@ class PropertiesController extends GetxController {
     loadMediaAssetsOptions();
 
     loadPage(0);
+    if (Get.isRegistered<SyncService>()) {
+      Get.find<SyncService>().syncNow().catchError((_) {});
+    }
+
   }
 
   @override
