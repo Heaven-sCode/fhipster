@@ -1,3 +1,5 @@
+// Requires sqflite and path_provider packages in pubspec.yaml.
+
 import 'dart:io';
 
 import 'package:path/path.dart';

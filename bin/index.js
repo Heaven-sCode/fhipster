@@ -20,6 +20,8 @@ const { generateAuthServiceTemplate } = require('../generators/auth_service_gene
 const { generateAuthMiddlewareTemplate } = require('../generators/auth_middleware_generator');
 const { generateRoleMiddlewareTemplate } = require('../generators/role_middleware_generator');
 const { generateTokenDecoderTemplate } = require('../generators/token_decoder_generator');
+const { generateConnectivityServiceTemplate } = require('../generators/connectivity_service_generator');
+const { generateSamplePubspec } = require('../generators/pubspec_generator');
 
 const { generateAppShellTemplate } = require('../generators/app_shell_generator');
 const { generateRoutesTemplate } = require('../generators/routes_generator');
@@ -128,6 +130,14 @@ function main() {
   const dirs = resolveDirs(outputDir);
   ensureDirs(dirs);
 
+  // Sample pubspec to track dependencies expected by generated code
+  writeFile(
+    path.join(dirs.projectRoot, 'pubspec.offline_sample.yaml'),
+    generateSamplePubspec({ enableSQLite }),
+    force,
+    'pubspec.offline_sample.yaml'
+  );
+
   // Header
   console.log(`\n📦 Output: '${outputDir}'`);
   console.log(`🔧 Microservice: '${microserviceName}'`);
@@ -151,6 +161,13 @@ function main() {
     writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
 
     writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
+
+    writeFile(
+      path.join(dirs.coreConnectivityDir, 'connectivity_service.dart'),
+      generateConnectivityServiceTemplate(),
+      force,
+      'core/connectivity/connectivity_service.dart'
+    );
   }
 
   if (enableSQLite) {
@@ -407,9 +424,11 @@ function resolveDirs(rootOut) {
   const libDir = rootOut;
   return {
     libDir,
+    projectRoot: path.resolve(libDir, '..'),
     coreDir: path.join(libDir, 'core'),
     coreAuthDir: path.join(libDir, 'core', 'auth'),
     coreEnvDir: path.join(libDir, 'core', 'env'),
+    coreConnectivityDir: path.join(libDir, 'core', 'connectivity'),
     modelsDir: path.join(libDir, 'models'),
     servicesDir: path.join(libDir, 'services'),
     controllersDir: path.join(libDir, 'controllers'),
@@ -439,6 +458,7 @@ function ensureDirs(dirs) {
     dirs.widgetsTableDir,
     dirs.widgetsCommonDir,
     dirs.enumsDir,
+    dirs.coreConnectivityDir,
     dirs.localDir,
     dirs.localDaoDir,
   ].forEach((d) => fs.mkdirSync(d, { recursive: true }));

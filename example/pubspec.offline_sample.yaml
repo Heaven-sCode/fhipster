@@ -1,0 +1,24 @@
+# Generated sample pubspec that lists dependencies required by FHipster output.
+# Merge these with your project's pubspec.yaml as needed.
+name: fhipster_generated_dependencies
+description: Sample dependency manifest emitted by FHipster.
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  get: ^4.6.6
+  get_storage: ^2.1.1
+  connectivity_plus: ^5.0.2
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  path_provider: ^2.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

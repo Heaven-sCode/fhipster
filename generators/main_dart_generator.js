@@ -5,6 +5,7 @@ function generateMainDartTemplate({ enableSQLite = false } = {}) {
   const sqliteInit = enableSQLite
     ? `  await LocalDatabase.instance.database;\n`
     : '';
+  const connectivityImport = "import 'core/connectivity/connectivity_service.dart';\n";
 
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -14,6 +15,7 @@ import 'core/env/env.dart';
 import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
+${connectivityImport}
 ${sqliteImports}
 
 // Select runtime profile at launch:
@@ -36,6 +38,7 @@ ${sqliteInit}
 
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
+  if (!Get.isRegistered<ConnectivityService>()) Get.put(ConnectivityService(), permanent: true);
 
   runApp(const FHipsterApp());
 }

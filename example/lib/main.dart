@@ -6,6 +6,8 @@ import 'core/env/env.dart';
 import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
+import 'core/connectivity/connectivity_service.dart';
+
 import 'core/local/local_database.dart';
 
 
@@ -30,6 +32,7 @@ Future<void> main() async {
 
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
+  if (!Get.isRegistered<ConnectivityService>()) Get.put(ConnectivityService(), permanent: true);
 
   runApp(const FHipsterApp());
 }
