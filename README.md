@@ -17,6 +17,7 @@
 - ✅ Responsive forms with `responsive_grid`
 - ✅ Route guards (auth + role-based)
 - ✅ Reusable widgets (inputs, table toolbar, pagination)
+- ✅ *(optional)* Offline cache with SQLite + background sync + connectivity tracking
 - ✅ **Non-destructive writes**: unchanged files are **skipped**; use `--force` to overwrite
 
 ---
@@ -45,6 +46,7 @@
   - `widgets/fhipster_input_field.dart`
   - `widgets/table/` search field, pagination bar, toolbar
   - `widgets/common/confirm_dialog.dart`
+  - *(opt-in)* `core/connectivity/` & `core/sync/` services when offline mode is enabled
 
 > Relationships follow JHipster semantics:
 > - O2O/M2O → single `TargetModel?`
@@ -89,6 +91,9 @@ fhipster <jdl-file> --microservice <name> [options]
 
 - YAML `profiles.dev` & `profiles.prod` → baked into `env.dart`
 - `--emitMain` or `emitMain: true` in YAML → generates `lib/main.dart`
+- `enableSQLite: true` → opt-in to local cache, background sync and generated `SyncService`
+- `tenantIsolationEnabled: true` + `tenantFieldName: userId` → auto-filter every REST call by user/tenant field
+- `syncIntervalMinutes: 15` → schedule periodic background sync (default 15 minutes)
 
 **Examples**
 
@@ -149,6 +154,21 @@ lib/
 # (optional when emitMain: true)
 main.dart
 ```
+
+---
+
+## 📦 Offline cache & background sync *(optional)*
+
+- Set `enableSQLite: true` in `fhipster.config.yaml` to generate:
+  - `core/local/local_database.dart` + per-entity DAOs (`core/local/dao/*`)
+  - `core/connectivity/connectivity_service.dart` to track offline/online windows
+  - `core/sync/sync_service.dart` to push local changes, refresh remote data, and expose `isSyncing`
+- Generated controllers/views call `SyncService.syncNow()` (guarded with `catchError`) and table views show an overlay loader while syncing.
+- A sample manifest, `pubspec.offline_sample.yaml`, is emitted in the project root listing the required packages (`get_storage`, `connectivity_plus`, `sqflite`, `path`, `path_provider`, …). Merge those into your real `pubspec.yaml` before running `flutter pub get`.
+- Use `syncIntervalMinutes` (global or per profile) to control how often the background sync timer runs.
+- When `tenantIsolationEnabled` is true, all generated REST calls (including search) automatically include the tenant filter; the SQLite cache stores `server_updated_at` & `local_updated_at` so you can extend the merge logic easily.
+
+> **Heads up:** the scaffolded sync logic mirrors the server state and clears `dirty` flags when remote updates succeed. Conflict resolution policies are left to you—extend `SyncService` if you need finer control.
 
 ---
 
