@@ -1,6 +1,6 @@
 # FHipster
 
-![FHipster - Flutter tool for converting JDL to Flutter ](https://dl3.pushbulletusercontent.com/T5UCg8KcfSBk06wyziPK2ZKTMzUByfZg/a-digital-illustration-of-a-smiling-hipp_u60V8NX0TUa5-x-HyyWx3A_o3ipjE9jTLSC1SopRHOWWw.jpeg)
+![FHipster - Flutter tool for converting JDL to Flutter ](https://theheavenscode.com/assets/images/Technologies/fhipster.png)
 
 ## 🚀 JDL → Flutter (GetX) Generator
 
