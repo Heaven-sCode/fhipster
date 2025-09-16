@@ -30,6 +30,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   const tenantIsolation = options.tenantIsolation || {};
   const tenantEnabled = !!tenantIsolation.enabled && !!tenantIsolation.fieldName;
   const tenantFieldName = tenantIsolation.fieldName;
+  const enableSQLite = !!options.enableSQLite;
 
   // Relationships
   const rels = fields.filter(f => f.isRelationship);
@@ -185,12 +186,17 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   }).join('\n');
 
   // controller content
+  const syncImport = enableSQLite ? "import '../core/sync/sync_service.dart';\n" : '';
+  const syncInitCall = enableSQLite
+    ? '    if (Get.isRegistered<SyncService>()) {\n      Get.find<SyncService>().syncNow().catchError((_) {});\n    }\n'
+    : '';
+
   return `import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../core/env/env.dart';
-import '../models/${lcFirst(entityName)}_model.dart';
+${syncImport}import '../models/${lcFirst(entityName)}_model.dart';
 import '../services/${lcFirst(entityName)}_service.dart';
 ${enumImports ? enumImports + '\n' : ''}${relModelImports ? relModelImports + '\n' : ''}${relServiceImports ? relServiceImports + '\n' : ''}
 
@@ -236,6 +242,7 @@ ${singleRels.map(r => `    load${cap(r.name)}Options();`).join('\n')}
 ${multiRels.map(r => `    load${cap(r.name)}Options();`).join('\n')}
 
     loadPage(0);
+${syncInitCall}
   }
 
   @override

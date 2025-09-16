@@ -54,14 +54,16 @@ class LocalDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         remote_id TEXT UNIQUE,
         payload TEXT NOT NULL,
-        updated_at TEXT,
+        server_updated_at TEXT,
+        local_updated_at TEXT,
         dirty INTEGER NOT NULL DEFAULT 0
       )''',
       '''CREATE TABLE IF NOT EXISTS media_assets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         remote_id TEXT UNIQUE,
         payload TEXT NOT NULL,
-        updated_at TEXT,
+        server_updated_at TEXT,
+        local_updated_at TEXT,
         dirty INTEGER NOT NULL DEFAULT 0
       )'''
   ];

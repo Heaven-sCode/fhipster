@@ -55,6 +55,17 @@ class SyncService extends GetxService {
     await _syncMediaAssets();
   }
 
+  Future<void> syncNow() async {
+    try {
+      await _performSync();
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('Manual sync failed: $e');
+      // ignore: avoid_print
+      print(st);
+    }
+  }
+
 
   Future<void> _syncProperties() async {
     if (!Get.isRegistered<PropertiesService>()) Get.put(PropertiesService());
@@ -63,13 +74,16 @@ class SyncService extends GetxService {
     try {
       final dirtyItems = await dao.getDirty();
       for (final local in dirtyItems) {
+        final remoteKey = local.id?.toString();
         try {
-          if (local.id != null) {
-            final updated = await service.update(local);
-            await dao.upsert(updated, remoteId: updated.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
-          } else {
-            final created = await service.create(local);
-            await dao.upsert(created, remoteId: created.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
+          final response = local.id != null
+              ? await service.update(local)
+              : await service.create(local);
+          final serverNow = DateTime.now().toIso8601String();
+          await dao.upsert(response, remoteId: response.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);
+          final responseId = response.id?.toString() ?? remoteKey;
+          if (responseId != null) {
+            await dao.markCleanByRemoteId(responseId, serverUpdatedAt: serverNow);
           }
         } catch (e, st) {
           // ignore: avoid_print
@@ -81,7 +95,8 @@ class SyncService extends GetxService {
 
       final remoteItems = await service.list();
       for (final item in remoteItems) {
-        await dao.upsert(item, remoteId: item.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
+        final serverNow = DateTime.now().toIso8601String();
+        await dao.upsert(item, remoteId: item.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);
       }
     } catch (e, st) {
       // ignore: avoid_print
@@ -98,13 +113,16 @@ class SyncService extends GetxService {
     try {
       final dirtyItems = await dao.getDirty();
       for (final local in dirtyItems) {
+        final remoteKey = local.id?.toString();
         try {
-          if (local.id != null) {
-            final updated = await service.update(local);
-            await dao.upsert(updated, remoteId: updated.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
-          } else {
-            final created = await service.create(local);
-            await dao.upsert(created, remoteId: created.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
+          final response = local.id != null
+              ? await service.update(local)
+              : await service.create(local);
+          final serverNow = DateTime.now().toIso8601String();
+          await dao.upsert(response, remoteId: response.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);
+          final responseId = response.id?.toString() ?? remoteKey;
+          if (responseId != null) {
+            await dao.markCleanByRemoteId(responseId, serverUpdatedAt: serverNow);
           }
         } catch (e, st) {
           // ignore: avoid_print
@@ -116,7 +134,8 @@ class SyncService extends GetxService {
 
       final remoteItems = await service.list();
       for (final item in remoteItems) {
-        await dao.upsert(item, remoteId: item.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
+        final serverNow = DateTime.now().toIso8601String();
+        await dao.upsert(item, remoteId: item.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);
       }
     } catch (e, st) {
       // ignore: avoid_print

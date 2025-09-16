@@ -19,11 +19,12 @@ function labelize(fieldName) {
 }
 const { toFileName } = require('../utils/naming');
 
-function generateTableViewTemplate(entityName, fields, allEntities = {}) {
+function generateTableViewTemplate(entityName, fields, allEntities = {}, options = {}) {
   const className = `${entityName}TableView`;
   const controllerClass = `${entityName}Controller`;
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
+  const enableSQLite = !!options.enableSQLite;
 
   // Determine child creation shortcuts for one-to-many relationships
   const childRelInfos = (fields || [])
@@ -103,6 +104,8 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}) {
     return `              _kv('${label}', ${valueExpr}),`;
   }).join('\n');
 
+  const syncImport = enableSQLite ? "import '../core/sync/sync_service.dart';\n" : '';
+
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../core/app_shell.dart';
@@ -111,7 +114,7 @@ import '../controllers/${lcFirst(entityName)}_controller.dart';
 import '../models/${lcFirst(entityName)}_model.dart';
 import '../forms/${lcFirst(entityName)}_form.dart';
 import '../widgets/common/confirm_dialog.dart';
-${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}
+${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${syncImport}
 
 class ${className} extends GetView<${controllerClass}> {
   const ${className}({super.key});
@@ -121,6 +124,7 @@ class ${className} extends GetView<${controllerClass}> {
   @override
   Widget build(BuildContext context) {
     final env = Env.get();
+${enableSQLite ? "    final syncService = Get.isRegistered<SyncService>() ? Get.find<SyncService>() : null;\n" : ''}
 
     return AppShell(
       title: _title,
@@ -130,10 +134,13 @@ class ${className} extends GetView<${controllerClass}> {
         final total = controller.total.value;
         final page = controller.page.value;
         final size = controller.size.value;
+        final syncing = ${enableSQLite ? '(syncService?.isSyncing.value ?? false)' : 'false'};
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        return Stack(
           children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             // Toolbar: search + actions
             Wrap(
               spacing: 12,
@@ -279,6 +286,20 @@ ${dataCells},
                 ),
               ),
             ),
+              ],
+            ),
+${enableSQLite ? `            if (syncing)
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: false,
+                  child: Container(
+                    color: Colors.black45,
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),` : ''}
           ],
         );
       }),
@@ -324,6 +345,7 @@ ${dataCells},
   }
 
   void _openViewDialog(BuildContext context, ${modelClass} m) {
+${enableSQLite ? "    if (Get.isRegistered<SyncService>()) {\n      Get.find<SyncService>().syncNow().catchError((_) {});\n    }\n" : ''}
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),

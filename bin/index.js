@@ -259,13 +259,13 @@ function main() {
         );
       }
       if (shouldGen('controllers')) {
-        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums, { tenantIsolation }), force, `controllers/${controllerF}`);
+        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums, { tenantIsolation, enableSQLite }), force, `controllers/${controllerF}`);
       }
       if (shouldGen('forms')) {
         writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums, { tenantIsolation }), force, `forms/${formF}`);
       }
       if (shouldGen('views')) {
-        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities), force, `views/${viewF}`);
+        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite }), force, `views/${viewF}`);
       }
 
       const pluralPathSeg = resourcePlural(entityName, devProfile.pluralOverrides || {});

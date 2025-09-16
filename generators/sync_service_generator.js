@@ -24,40 +24,7 @@ function generateSyncServiceTemplate(entityNames = []) {
         .map(name => {
           const className = ucFirst(name);
           const field = lcFirst(name);
-          return `  Future<void> _sync${className}() async {
-    if (!Get.isRegistered<${className}Service>()) Get.put(${className}Service());
-    final service = Get.find<${className}Service>();
-    final dao = _${field}Dao ??= ${className}Dao();
-    try {
-      final dirtyItems = await dao.getDirty();
-      for (final local in dirtyItems) {
-        try {
-          if (local.id != null) {
-            final updated = await service.update(local);
-            await dao.upsert(updated, remoteId: updated.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
-          } else {
-            final created = await service.create(local);
-            await dao.upsert(created, remoteId: created.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
-          }
-        } catch (e, st) {
-          // ignore: avoid_print
-          print('Failed to push dirty ${className}: $e');
-          // ignore: avoid_print
-          print(st);
-        }
-      }
-
-      final remoteItems = await service.list();
-      for (final item in remoteItems) {
-        await dao.upsert(item, remoteId: item.id?.toString(), updatedAt: DateTime.now().toIso8601String(), markDirty: false);
-      }
-    } catch (e, st) {
-      // ignore: avoid_print
-      print('Failed to sync ${className}: $e');
-      // ignore: avoid_print
-      print(st);
-    }
-  }`;
+          return `  Future<void> _sync${className}() async {\n    if (!Get.isRegistered<${className}Service>()) Get.put(${className}Service());\n    final service = Get.find<${className}Service>();\n    final dao = _${field}Dao ??= ${className}Dao();\n    try {\n      final dirtyItems = await dao.getDirty();\n      for (final local in dirtyItems) {\n        final remoteKey = local.id?.toString();\n        try {\n          final response = local.id != null\n              ? await service.update(local)\n              : await service.create(local);\n          final serverNow = DateTime.now().toIso8601String();\n          await dao.upsert(response, remoteId: response.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);\n          final responseId = response.id?.toString() ?? remoteKey;\n          if (responseId != null) {\n            await dao.markCleanByRemoteId(responseId, serverUpdatedAt: serverNow);\n          }\n        } catch (e, st) {\n          // ignore: avoid_print\n          print('Failed to push dirty ${className}: $e');\n          // ignore: avoid_print\n          print(st);\n        }\n      }\n\n      final remoteItems = await service.list();\n      for (final item in remoteItems) {\n        final serverNow = DateTime.now().toIso8601String();\n        await dao.upsert(item, remoteId: item.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);\n      }\n    } catch (e, st) {\n      // ignore: avoid_print\n      print('Failed to sync ${className}: $e');\n      // ignore: avoid_print\n      print(st);\n    }\n  }`;
         })
         .join('\n\n')
     : '';
@@ -109,6 +76,17 @@ ${daoFields ? '\n' + daoFields + '\n' : ''}
 
   Future<void> _performSync() async {
 ${syncCalls}
+  }
+
+  Future<void> syncNow() async {
+    try {
+      await _performSync();
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('Manual sync failed: $e');
+      // ignore: avoid_print
+      print(st);
+    }
   }
 
 ${syncMethods ? '\n' + syncMethods + '\n' : ''}

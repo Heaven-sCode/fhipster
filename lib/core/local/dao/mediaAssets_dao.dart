@@ -31,18 +31,25 @@ class MediaAssetsDao {
     return _decode(rows.first);
   }
 
-  Future<int> upsert(MediaAssetsModel model, {String? remoteId, String? updatedAt, bool markDirty = false}) async {
+  Future<int> upsert(MediaAssetsModel model, {String? remoteId, String? serverUpdatedAt, String? localUpdatedAt, bool markDirty = false}) async {
     final db = await _db;
     final id = remoteId ?? model.id?.toString();
     final payload = jsonEncode(model.toJson());
+    final now = DateTime.now().toIso8601String();
+    final data = <String, Object?>{
+      'remote_id': id,
+      'payload': payload,
+      'server_updated_at': serverUpdatedAt ?? now,
+      'dirty': markDirty ? 1 : 0,
+    };
+    if (markDirty) {
+      data['local_updated_at'] = localUpdatedAt ?? now;
+    } else if (localUpdatedAt != null) {
+      data['local_updated_at'] = localUpdatedAt;
+    }
     return db.insert(
       _table,
-      {
-        'remote_id': id,
-        'payload': payload,
-        'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
-        'dirty': markDirty ? 1 : 0,
-      },
+      data,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -65,13 +72,14 @@ class MediaAssetsDao {
     return rows.map((row) => _decode(row)).whereType<MediaAssetsModel>().toList();
   }
 
-  Future<void> markCleanByRemoteId(dynamic remoteId, {String? updatedAt}) async {
+  Future<void> markCleanByRemoteId(dynamic remoteId, {String? serverUpdatedAt}) async {
     final key = remoteId?.toString();
     await (await _db).update(
       _table,
       {
         'dirty': 0,
-        if (updatedAt != null) 'updated_at': updatedAt,
+        if (serverUpdatedAt != null) 'server_updated_at': serverUpdatedAt,
+        'local_updated_at': null,
       },
       where: 'remote_id = ?',
       whereArgs: [key],

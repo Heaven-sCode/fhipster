@@ -6,6 +6,7 @@ import '../controllers/mediaAssets_controller.dart';
 import '../models/mediaAssets_model.dart';
 import '../forms/mediaAssets_form.dart';
 import '../widgets/common/confirm_dialog.dart';
+import '../core/sync/sync_service.dart';
 
 
 class MediaAssetsTableView extends GetView<MediaAssetsController> {
@@ -16,6 +17,8 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
   @override
   Widget build(BuildContext context) {
     final env = Env.get();
+    final syncService = Get.isRegistered<SyncService>() ? Get.find<SyncService>() : null;
+
 
     return AppShell(
       title: _title,
@@ -25,10 +28,13 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
         final total = controller.total.value;
         final page = controller.page.value;
         final size = controller.size.value;
+        final syncing = (syncService?.isSyncing.value ?? false);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        return Stack(
           children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             // Toolbar: search + actions
             Wrap(
               spacing: 12,
@@ -180,6 +186,20 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
                 ),
               ),
             ),
+              ],
+            ),
+            if (syncing)
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: false,
+                  child: Container(
+                    color: Colors.black45,
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       }),
@@ -225,6 +245,10 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
   }
 
   void _openViewDialog(BuildContext context, MediaAssetsModel m) {
+    if (Get.isRegistered<SyncService>()) {
+      Get.find<SyncService>().syncNow().catchError((_) {});
+    }
+
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
