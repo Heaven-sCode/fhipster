@@ -73,7 +73,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
       // We cannot import type mapping here; rely on name heuristics & runtime type.
       // Safer: call .toString(), but prettify booleans and dates if possible.
       if (n.toLowerCase().includes('date') || n.toLowerCase().includes('time')) {
-        return `Text(m.${n} != null ? (m.${n}!.toIso8601String()) : '')`;
+        return `Text(_formatTemporal(m.${n}))`;
       }
       return `Text(m.${n} == null ? '' : m.${n}.toString())`;
     }
@@ -97,7 +97,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
         valueExpr = `m.${f.name}?.id?.toString() ?? ''`;
       }
     } else if (f.name.toLowerCase().includes('date') || f.name.toLowerCase().includes('time')) {
-      valueExpr = `m.${f.name} != null ? m.${f.name}!.toIso8601String() : ''`;
+    valueExpr = `_formatTemporal(m.${f.name})`;
     } else {
       valueExpr = `m.${f.name}?.toString() ?? ''`;
     }
@@ -110,9 +110,9 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 import 'package:get/get.dart';
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
-import '../controllers/${lcFirst(entityName)}_controller.dart';
-import '../models/${lcFirst(entityName)}_model.dart';
-import '../forms/${lcFirst(entityName)}_form.dart';
+import '../controllers/${toFileName(entityName)}_controller.dart';
+import '../models/${toFileName(entityName)}_model.dart';
+import '../forms/${toFileName(entityName)}_form.dart';
 import '../widgets/common/confirm_dialog.dart';
 ${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${syncImport}
 
@@ -124,7 +124,6 @@ class ${className} extends GetView<${controllerClass}> {
   @override
   Widget build(BuildContext context) {
     final env = Env.get();
-${enableSQLite ? "    final syncService = Get.isRegistered<SyncService>() ? Get.find<SyncService>() : null;\n" : ''}
 
     return AppShell(
       title: _title,
@@ -134,7 +133,6 @@ ${enableSQLite ? "    final syncService = Get.isRegistered<SyncService>() ? Get.
         final total = controller.total.value;
         final page = controller.page.value;
         final size = controller.size.value;
-        final syncing = ${enableSQLite ? '(syncService?.isSyncing.value ?? false)' : 'false'};
 
         return Stack(
           children: [
@@ -223,8 +221,12 @@ ${dataCells},
                                       tooltip: 'Delete'.tr,
                                       icon: const Icon(Icons.delete_outline),
                                       onPressed: () async {
-                                        final ok = await confirmDialog(context, title: 'Delete', message: 'Are you sure?'.tr);
-                                        if (ok) {
+                                        final ok = await showConfirmDialog(
+                                          context,
+                                          title: 'Delete',
+                                          message: 'Are you sure?'.tr,
+                                        );
+                                        if (ok == true) {
                                           await controller.deleteOne(m);
                                         }
                                       },
@@ -288,18 +290,6 @@ ${dataCells},
             ),
               ],
             ),
-${enableSQLite ? `            if (syncing)
-              Positioned.fill(
-                child: IgnorePointer(
-                  ignoring: false,
-                  child: Container(
-                    color: Colors.black45,
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                ),
-              ),` : ''}
           ],
         );
       }),
@@ -439,6 +429,12 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
       ],
     ),
   );
+}
+
+String _formatTemporal(dynamic value) {
+  if (value == null) return '';
+  if (value is DateTime) return value.toIso8601String();
+  return value.toString();
 }
 `;
 }

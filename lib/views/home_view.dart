@@ -21,8 +21,8 @@ class HomeView extends StatelessWidget {
           children: [
             // Greeting
             if (auth != null) Obx(() {
-              final name = auth.displayName ?? auth.username ?? 'User';
-              return Text('Welcome, ' + name, style: Theme.of(context).textTheme.headlineSmall);
+              final name = auth.displayName ?? auth.username.value ?? 'User';
+              return Text('Welcome, $name', style: Theme.of(context).textTheme.headlineSmall);
             }) else
               Text('Welcome', style: Theme.of(context).textTheme.headlineSmall),
 
@@ -37,13 +37,13 @@ class HomeView extends StatelessWidget {
                   icon: Icons.account_circle_outlined,
                   title: 'Account',
                   child: auth != null ? Obx(() {
-                    final roles = (auth.authorities ?? const <String>[]);
+                    final roles = auth.authorities;
                     final at = auth.accessTokenExpiry;
                     final rt = auth.refreshTokenExpiry;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _kv('Username', auth.username ?? '-'),
+                        _kv('Username', auth.username.value),
                         _kv('Display name', auth.displayName ?? '-'),
                         _kv('Roles', roles.isEmpty ? '-' : roles.join(', ')),
                         _kv('Access token exp', at != null ? at.toLocal().toString() : '-'),
@@ -148,7 +148,8 @@ class _HomeCard extends StatelessWidget {
   }
 }
 
-Widget _kv(String k, String v) {
+Widget _kv(String k, Object? v) {
+  final value = _stringifyValue(v);
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 2),
     child: Row(
@@ -156,8 +157,14 @@ Widget _kv(String k, String v) {
       children: [
         SizedBox(width: 160, child: Text(k, style: Get.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600))),
         const SizedBox(width: 8),
-        Expanded(child: SelectableText(v)),
+        Expanded(child: SelectableText(value)),
       ],
     ),
   );
+}
+
+String _stringifyValue(Object? value) {
+  if (value == null) return '-';
+  if (value is String && value.trim().isEmpty) return '-';
+  return value.toString();
 }

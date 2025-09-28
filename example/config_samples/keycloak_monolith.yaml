@@ -1,0 +1,71 @@
+# Sample FHipster config for a monolithic backend using Keycloak (OIDC).
+emitMain: true
+enableSQLite: false
+
+jdlFile: ./example/JDL/app.jdl
+outputDir: ./lib
+microservice: monolithApp
+
+appName: Monolith Portal
+envName: dev
+includeAuthGuards: true
+
+# Default paging options
+defaultPageSize: 25
+pageSizeOptions: [10, 25, 50, 100]
+defaultSort: ['id,desc']
+defaultSearchSort: ['_score,desc']
+distinctByDefault: false
+
+totalCountHeaderName: X-Total-Count
+storageKeyAccessToken: fh_access_token
+storageKeyAccessExpiry: fh_access_expiry
+storageKeyRefreshToken: fh_refresh_token
+storageKeyRefreshExpiry: fh_refresh_expiry
+storageKeyRememberedUsername: fh_remembered_username
+
+relationshipPayloadMode: idOnly
+
+pluralOverrides:
+  person: people
+
+syncIntervalMinutes: 15
+
+auth:
+  provider: keycloak
+  keycloak:
+    tokenEndpoint: https://auth.example.com/realms/monolith/protocol/openid-connect/token
+    logoutEndpoint: https://auth.example.com/realms/monolith/protocol/openid-connect/logout
+    authorizeEndpoint: https://auth.example.com/realms/monolith/protocol/openid-connect/auth
+    userinfoEndpoint: https://auth.example.com/realms/monolith/protocol/openid-connect/userinfo
+    clientId: monolith_portal
+    clientSecret: ""
+    scopes: [openid, profile, email]
+
+profiles:
+  dev:
+    apiHost: http://localhost:8080
+    useGateway: false
+    appName: Monolith Portal (DEV)
+    envName: dev
+    storageMode: get_storage
+    httpStrict: false
+    auth:
+      provider: keycloak
+      keycloak:
+        tokenEndpoint: http://localhost:9080/realms/monolith/protocol/openid-connect/token
+        logoutEndpoint: http://localhost:9080/realms/monolith/protocol/openid-connect/logout
+        authorizeEndpoint: http://localhost:9080/realms/monolith/protocol/openid-connect/auth
+        userinfoEndpoint: http://localhost:9080/realms/monolith/protocol/openid-connect/userinfo
+        clientId: monolith_portal
+        clientSecret: ""
+        scopes: [openid, profile, email]
+
+  prod:
+    apiHost: https://api.example.com
+    useGateway: false
+    appName: Monolith Portal
+    envName: prod
+    storageMode: secure_storage
+    httpStrict: true
+    pinnedSha256Certs: []

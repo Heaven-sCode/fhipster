@@ -1,7 +1,7 @@
 import 'package:get/get.dart';
 import '../core/api_client.dart';
 import '../core/env/env.dart';
-import '../models/mediaAssets_model.dart';
+import '../models/media_assets_model.dart';
 
 /// Paged result holder (items + total count).
 class PagedResult<T> {

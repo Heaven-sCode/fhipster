@@ -9,7 +9,7 @@ class HomeView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final auth = Get.isRegistered<AuthService>() ? Get.find<AuthService>() : null;
+    final auth = Get.find<AuthService>();
     final env = Env.get();
 
     return AppShell(
@@ -20,11 +20,10 @@ class HomeView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Greeting
-            if (auth != null) Obx(() {
-              final name = auth.displayName ?? auth.username ?? 'User';
+            Obx(() {
+              final name = _displayName(auth) ?? _username(auth) ?? 'User';
               return Text('Welcome, ' + name, style: Theme.of(context).textTheme.headlineSmall);
-            }) else
-              Text('Welcome', style: Theme.of(context).textTheme.headlineSmall),
+            }),
 
             const SizedBox(height: 16),
 
@@ -36,15 +35,15 @@ class HomeView extends StatelessWidget {
                 _HomeCard(
                   icon: Icons.account_circle_outlined,
                   title: 'Account',
-                  child: auth != null ? Obx(() {
-                    final roles = (auth.authorities ?? const <String>[]);
+                  child: Obx(() {
+                    final roles = auth.authorities.toList();
                     final at = auth.accessTokenExpiry;
                     final rt = auth.refreshTokenExpiry;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _kv('Username', auth.username ?? '-'),
-                        _kv('Display name', auth.displayName ?? '-'),
+                        _kv('Username', _username(auth) ?? '-'),
+                        _kv('Display name', _displayName(auth) ?? '-'),
                         _kv('Roles', roles.isEmpty ? '-' : roles.join(', ')),
                         _kv('Access token exp', at != null ? at.toLocal().toString() : '-'),
                         _kv('Refresh token exp', rt != null ? rt.toLocal().toString() : '-'),
@@ -58,7 +57,7 @@ class HomeView extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             OutlinedButton.icon(
-                              onPressed: () => auth.refreshNow(),
+                              onPressed: () => auth.tryRefreshToken(),
                               icon: const Icon(Icons.refresh),
                               label: const Text('Refresh token'),
                             ),
@@ -66,7 +65,7 @@ class HomeView extends StatelessWidget {
                         ),
                       ],
                     );
-                  }) : const Text('Not authenticated'),
+                  }),
                 ),
 
                 _HomeCard(
@@ -161,3 +160,7 @@ Widget _kv(String k, String v) {
     ),
   );
 }
+
+String? _username(AuthService auth) => auth.username.value;
+
+String? _displayName(AuthService auth) => auth.displayName;

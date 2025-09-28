@@ -10,10 +10,11 @@
 // - Includes copyWith()
 
 const { jdlToDartType } = require('../parser/type_mapping');
+const { toFileName } = require('../utils/naming');
 
 function lcFirst(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
-function modelImportPath(name) { return `../models/${lcFirst(name)}_model.dart`; }
-function enumImportPath(name) { return `../enums/${lcFirst(name)}_enum.dart`; }
+function modelImportPath(name) { return `../models/${toFileName(name)}_model.dart`; }
+function enumImportPath(name) { return `../enums/${toFileName(name)}_enum.dart`; }
 
 function generateModelTemplate(entityName, fields, parsedEnums) {
   const className = `${entityName}Model`;
@@ -43,8 +44,7 @@ function generateModelTemplate(entityName, fields, parsedEnums) {
       return `  final ${tModel}? ${f.name};`;
     }
     const dartType = jdlToDartType(f.type, parsedEnums);
-    const nullable = (f.name === 'id' || f.nullable !== false) ? '?' : '';
-    return `  final ${dartType}${nullable} ${f.name};`;
+    return `  final ${dartType}? ${f.name};`;
   }).join('\n');
 
   // Constructor params
@@ -151,8 +151,7 @@ function generateModelTemplate(entityName, fields, parsedEnums) {
       return `    ${tModel}? ${f.name},`;
     }
     const dartType = jdlToDartType(f.type, parsedEnums);
-    const nullable = (f.name === 'id' || f.nullable !== false) ? '?' : '';
-    return `    ${dartType}${nullable} ${f.name},`;
+    return `    ${dartType}? ${f.name},`;
   }).join('\n');
 
   const copyBody = fields.map(f => `      ${f.name}: ${f.name} ?? this.${f.name},`).join('\n');

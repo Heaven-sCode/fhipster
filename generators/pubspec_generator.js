@@ -2,8 +2,8 @@ function generateSamplePubspec({ enableSQLite = false } = {}) {
   const dependencies = {
     flutter: { sdk: 'flutter' },
     cupertino_icons: '^1.0.6',
-    get: '^4.6.6',
-    get_storage: '^2.1.1',
+  get: '^4.6.6',
+  get_storage: '^2.1.1',
     connectivity_plus: '^5.0.2',
   };
 

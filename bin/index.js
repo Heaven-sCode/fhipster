@@ -178,6 +178,8 @@ function main() {
     );
   }
 
+  const generatedDaoEntities = new Set();
+
   if (enableSQLite) {
     console.log('• Generating local SQLite cache ...');
     const entityNames = entities ? Object.keys(entities) : [];
@@ -189,21 +191,17 @@ function main() {
     );
 
     entityNames.forEach((entityName) => {
-      const daoContent = generateDaoTemplate(entityName);
+      const modelFile = `${entityFileBase(entityName)}_model.dart`;
+      const modelImportRelative = path.relative(dirs.localDaoDir, path.join(dirs.modelsDir, modelFile)).replace(/\\/g, '/');
+      const daoContent = generateDaoTemplate(entityName, { modelImportPath: modelImportRelative });
       writeFile(
         path.join(dirs.localDaoDir, `${entityFileBase(entityName)}_dao.dart`),
         daoContent,
         force,
         path.join('core/local/dao', `${entityFileBase(entityName)}_dao.dart`)
       );
+      generatedDaoEntities.add(entityName);
     });
-
-    writeFile(
-      path.join(dirs.coreSyncDir, 'sync_service.dart'),
-      generateSyncServiceTemplate(entityNames),
-      force,
-      'core/sync/sync_service.dart'
-    );
   }
 
   // Widgets
@@ -230,6 +228,7 @@ function main() {
   console.log('• Generating entities (models/services/controllers/forms/views) ...');
 
   const entityRoutes = [];
+  const generatedServiceEntities = new Set();
   if (entities) {
     for (const [entityName, fields] of Object.entries(entities)) {
       if (!entityAllowed(entityName)) continue;
@@ -264,6 +263,7 @@ function main() {
           force,
           `services/${serviceF}`
         );
+        generatedServiceEntities.add(entityName);
       }
       if (shouldGen('controllers')) {
         writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums, { tenantIsolation, enableSQLite }), force, `controllers/${controllerF}`);
@@ -285,6 +285,19 @@ function main() {
         roles: [],
       });
     }
+  }
+
+  if (enableSQLite) {
+    const syncEntities = shouldGen('services')
+      ? Array.from(generatedDaoEntities).filter((entityName) => generatedServiceEntities.has(entityName))
+      : [];
+
+    writeFile(
+      path.join(dirs.coreSyncDir, 'sync_service.dart'),
+      generateSyncServiceTemplate(syncEntities),
+      force,
+      'core/sync/sync_service.dart'
+    );
   }
 
   // Static screens

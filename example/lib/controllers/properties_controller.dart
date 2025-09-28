@@ -6,8 +6,8 @@ import '../core/env/env.dart';
 import '../core/sync/sync_service.dart';
 import '../models/properties_model.dart';
 import '../services/properties_service.dart';
-import '../models/mediaAssets_model.dart';
-import '../services/mediaAssets_service.dart';
+import '../models/media_assets_model.dart';
+import '../services/media_assets_service.dart';
 
 
 /// Controller for Properties list & form state.

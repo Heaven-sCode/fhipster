@@ -19,8 +19,6 @@ class PropertiesTableView extends GetView<PropertiesController> {
   @override
   Widget build(BuildContext context) {
     final env = Env.get();
-    final syncService = Get.isRegistered<SyncService>() ? Get.find<SyncService>() : null;
-
 
     return AppShell(
       title: _title,
@@ -30,7 +28,6 @@ class PropertiesTableView extends GetView<PropertiesController> {
         final total = controller.total.value;
         final page = controller.page.value;
         final size = controller.size.value;
-        final syncing = (syncService?.isSyncing.value ?? false);
 
         return Stack(
           children: [
@@ -129,8 +126,12 @@ class PropertiesTableView extends GetView<PropertiesController> {
                                       tooltip: 'Delete'.tr,
                                       icon: const Icon(Icons.delete_outline),
                                       onPressed: () async {
-                                        final ok = await confirmDialog(context, title: 'Delete', message: 'Are you sure?'.tr);
-                                        if (ok) {
+                                        final ok = await showConfirmDialog(
+                                          context,
+                                          title: 'Delete',
+                                          message: 'Are you sure?'.tr,
+                                        );
+                                        if (ok == true) {
                                           await controller.deleteOne(m);
                                         }
                                       },
@@ -194,18 +195,6 @@ class PropertiesTableView extends GetView<PropertiesController> {
             ),
               ],
             ),
-            if (syncing)
-              Positioned.fill(
-                child: IgnorePointer(
-                  ignoring: false,
-                  child: Container(
-                    color: Colors.black45,
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                ),
-              ),
           ],
         );
       }),
@@ -353,4 +342,10 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
       ],
     ),
   );
+}
+
+String _formatTemporal(dynamic value) {
+  if (value == null) return '';
+  if (value is DateTime) return value.toIso8601String();
+  return value.toString();
 }

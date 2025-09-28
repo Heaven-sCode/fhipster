@@ -1,4 +1,7 @@
+const path = require('path');
 const { toFileName } = require('../utils/naming');
+
+const CORE_LOCAL_DAO_DIR = 'core/local/dao';
 
 function tableName(entityName) {
   return toFileName(entityName);
@@ -70,18 +73,24 @@ ${statements}
 `;
 }
 
-function generateDaoTemplate(entityName) {
+function generateDaoTemplate(entityName, { modelImportPath } = {}) {
   const className = `${entityName}Dao`;
   const modelClass = `${entityName}Model`;
   const table = tableName(entityName);
   const fileName = toFileName(entityName);
+
+  const defaultModelsImportPath = path.posix.join('models', `${fileName}_model.dart`);
+  const relativeModelImport = (modelImportPath
+    ? modelImportPath
+    : path.posix.relative(CORE_LOCAL_DAO_DIR, defaultModelsImportPath)
+  ).replace(/\\/g, '/');
 
   return `import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
 import '../local_database.dart';
-import '../../models/${fileName}_model.dart';
+import '${relativeModelImport}';
 
 /// Basic DAO for ${entityName}. Persists serialized payloads locally for offline caching.
 class ${className} {

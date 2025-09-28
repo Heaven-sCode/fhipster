@@ -1,0 +1,81 @@
+# FHipster config tuned for a monolithic JHipster backend using JWT authentication.
+emitMain: true
+enableSQLite: false
+
+# Optional theme override (Material 3 light/dark palettes)
+theme:
+  light:
+    primary: '#3366FF'
+    secondary: '#2952CC'
+    accent: '#00A1DE'
+  dark:
+    primary: '#99B3FF'
+    secondary: '#7385E6'
+    accent: '#4DD0F7'
+
+# --- Generator inputs ---
+jdlFile: ./JDL/app.jdl
+outputDir: ./lib
+microservice: monolithApp
+
+# Base defaults applied to every profile unless overridden below
+appName: Monolith Portal
+envName: dev
+apiHost: http://localhost:8080
+useGateway: false
+includeAuthGuards: true
+
+# Paging / sorting defaults
+defaultPageSize: 25
+pageSizeOptions: [10, 25, 50, 100]
+defaultSort: ['id,desc']
+defaultSearchSort: ['_score,desc']
+distinctByDefault: false
+
+# Headers / storage key names
+totalCountHeaderName: X-Total-Count
+storageKeyAccessToken: fh_access_token
+storageKeyAccessExpiry: fh_access_expiry
+storageKeyRefreshToken: fh_refresh_token
+storageKeyRefreshExpiry: fh_refresh_expiry
+storageKeyRememberedUsername: fh_remembered_username
+
+# Relationships payload mode for services: idOnly | fullObject
+relationshipPayloadMode: idOnly
+
+# JWT auth is defined at the root so profiles inherit it by default
+auth:
+  provider: jhipsterJwt
+  jwtAuthEndpoint: /api/authenticate
+  accountEndpoint: /api/account
+  allowCredentialCacheForJwt: false
+
+# Passwords / session tokens go into flutter_secure_storage by default
+storageMode: secure_storage
+httpStrict: false             # allow HTTP during local dev
+pinnedSha256Certs: []          # e.g. ['ab12cd...'] when enabling cert pinning
+
+pluralOverrides:
+  person: people
+
+# Tenant isolation disabled for a monolith
+tenantIsolationEnabled: false
+syncIntervalMinutes: 15
+
+# --- Profiles ---
+profiles:
+  dev:
+    apiHost: http://localhost:8080
+    envName: dev
+    appName: Monolith Portal (DEV)
+    httpStrict: false
+    storageMode: get_storage     # faster rebuilds locally; toggles back to secure in prod
+
+  prod:
+    apiHost: https://api.mycompany.com
+    envName: prod
+    appName: Monolith Portal
+    httpStrict: true             # enforce HTTPS in production
+    allowCredentialCacheForJwt: true   # remember JWT credentials between launches
+    pinnedSha256Certs:
+      - 'AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12CD34EF56'

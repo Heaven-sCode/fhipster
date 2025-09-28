@@ -1,0 +1,89 @@
+# Sample FHipster config for a microservice deployment secured with Keycloak (OIDC).
+emitMain: true
+enableSQLite: true
+
+# Adjust colors or remove to use defaults.
+theme:
+  light:
+    primary: '#2D6CDF'
+    secondary: '#1B48B2'
+    accent: '#0B6EFD'
+  dark:
+    primary: '#8AB4F8'
+    secondary: '#5F85DB'
+    accent: '#4C8CF6'
+
+# Paths are relative to the working directory when invoking the CLI.
+jdlFile: ./example/JDL/app.jdl
+outputDir: ./lib
+microservice: operationsModule
+
+appName: Operations Portal
+envName: dev
+includeAuthGuards: true
+
+# Paging / sorting defaults
+defaultPageSize: 20
+pageSizeOptions: [10, 20, 50, 100]
+defaultSort: ['id,desc']
+defaultSearchSort: ['_score,desc']
+distinctByDefault: false
+
+# Headers / storage key names
+totalCountHeaderName: X-Total-Count
+storageKeyAccessToken: fh_access_token
+storageKeyAccessExpiry: fh_access_expiry
+storageKeyRefreshToken: fh_refresh_token
+storageKeyRefreshExpiry: fh_refresh_expiry
+storageKeyRememberedUsername: fh_remembered_username
+
+relationshipPayloadMode: idOnly
+
+pluralOverrides:
+  person: people
+  address: addresses
+
+# Tenant filtering disabled by default
+tenantIsolationEnabled: false
+syncIntervalMinutes: 15
+
+auth:
+  provider: keycloak
+  keycloak:
+    tokenEndpoint: https://auth.example.com/realms/operations/protocol/openid-connect/token
+    logoutEndpoint: https://auth.example.com/realms/operations/protocol/openid-connect/logout
+    authorizeEndpoint: https://auth.example.com/realms/operations/protocol/openid-connect/auth
+    userinfoEndpoint: https://auth.example.com/realms/operations/protocol/openid-connect/userinfo
+    clientId: operations_app
+    clientSecret: ""
+    scopes: [openid, profile, email, offline_access]
+
+profiles:
+  dev:
+    apiHost: http://localhost:8080
+    useGateway: true
+    gatewayServiceName: operationsModule
+    appName: Operations Portal (DEV)
+    envName: dev
+    storageMode: get_storage
+    httpStrict: false
+    auth:
+      provider: keycloak
+      keycloak:
+        tokenEndpoint: http://localhost:9080/realms/operations/protocol/openid-connect/token
+        logoutEndpoint: http://localhost:9080/realms/operations/protocol/openid-connect/logout
+        authorizeEndpoint: http://localhost:9080/realms/operations/protocol/openid-connect/auth
+        userinfoEndpoint: http://localhost:9080/realms/operations/protocol/openid-connect/userinfo
+        clientId: operations_app
+        clientSecret: ""
+        scopes: [openid, profile, email, offline_access]
+
+  prod:
+    apiHost: https://api.example.com
+    useGateway: true
+    gatewayServiceName: operationsModule
+    appName: Operations Portal
+    envName: prod
+    storageMode: secure_storage
+    httpStrict: true
+    pinnedSha256Certs: []

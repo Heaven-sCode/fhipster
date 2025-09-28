@@ -9,6 +9,8 @@
 // Usage:
 //   writeFile(..., generateServiceTemplate('Order', { microserviceName, useGateway, tenantIsolation }), ...)
 
+const { toFileName } = require('../utils/naming');
+
 function generateServiceTemplate(
   entityName,
   {
@@ -64,7 +66,7 @@ function generateServiceTemplate(
   return `import 'package:get/get.dart';
 ${tenantImport}import '../core/api_client.dart';
 import '../core/env/env.dart';
-import '../models/${lcFirst(entityName)}_model.dart';
+import '../models/${toFileName(entityName)}_model.dart';
 
 /// Paged result holder (items + total count).
 class PagedResult<T> {
@@ -79,9 +81,9 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
 
   // Resolve paths using Env; allow per-service gateway override baked at generation time.
   final String? _micro = ${microOverrideInit};
-  late final String _plural = Env.get().pluralFor('${entityName}');
-  String get _base => Env.get().entityBasePath(_plural, microserviceOverride: _micro);
-  String get _searchBase => Env.get().searchBasePath(_plural, microserviceOverride: _micro);
+  late final String _plural = Env.pluralFor('${entityName}');
+  String get _base => Env.entityBasePath(_plural, microserviceOverride: _micro);
+  String get _searchBase => Env.searchBasePath(_plural, microserviceOverride: _micro);
 
   /// List with pagination, sorting and criteria filters.
   /// Returns only items; see [listPaged] to also get total.

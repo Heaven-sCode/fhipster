@@ -16,6 +16,7 @@ import '../core/routes.dart';
 
 class SplashController extends GetxController {
   final RxBool isBusy = true.obs;
+  final RxString status = 'Initializing…'.obs;
 
   @override
   void onReady() {
@@ -26,6 +27,7 @@ class SplashController extends GetxController {
   Future<void> _start() async {
     isBusy.value = true;
 
+    status.value = 'Loading environment…';
     // Make sure environment is initialized with baked defaults.
     // (You can still override in main.dart with Env.init(...))
     try {
@@ -34,6 +36,7 @@ class SplashController extends GetxController {
       // already initialized
     }
 
+    status.value = 'Preparing services…';
     // Ensure core singletons
     if (!Get.isRegistered<ApiClient>()) {
       Get.put(ApiClient(), permanent: true);
@@ -44,7 +47,7 @@ class SplashController extends GetxController {
 
     final auth = Get.find<AuthService>();
 
-    // Optional tiny delay for splash UX
+    status.value = 'Checking session…';
     await Future.delayed(const Duration(milliseconds: 400));
 
     // Attempt session bootstrap (refresh in Keycloak, validate in JWT)
@@ -53,8 +56,10 @@ class SplashController extends GetxController {
     isBusy.value = false;
 
     if (ok && auth.isAuthenticated) {
+      status.value = 'Welcome back!';
       Get.offAllNamed(AppRoutes.home);
     } else {
+      status.value = 'Redirecting to login…';
       Get.offAllNamed(AppRoutes.login);
     }
   }

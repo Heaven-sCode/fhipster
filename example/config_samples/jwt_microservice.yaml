@@ -1,0 +1,58 @@
+# Sample FHipster config for a microservice deployment that uses JHipster JWT auth.
+emitMain: true
+enableSQLite: true
+
+jdlFile: ./example/JDL/app.jdl
+outputDir: ./lib
+microservice: warehouse
+
+appName: Warehouse Console
+envName: dev
+includeAuthGuards: true
+
+defaultPageSize: 20
+pageSizeOptions: [10, 20, 50]
+defaultSort: ['id,desc']
+defaultSearchSort: ['_score,desc']
+distinctByDefault: false
+
+totalCountHeaderName: X-Total-Count
+storageKeyAccessToken: fh_access_token
+storageKeyAccessExpiry: fh_access_expiry
+storageKeyRefreshToken: fh_refresh_token
+storageKeyRefreshExpiry: fh_refresh_expiry
+storageKeyRememberedUsername: fh_remembered_username
+
+relationshipPayloadMode: idOnly
+
+pluralOverrides:
+  inventory: inventories
+
+tenantIsolationEnabled: false
+syncIntervalMinutes: 10
+
+auth:
+  provider: jhipsterJwt
+  jwtAuthEndpoint: /api/authenticate
+  accountEndpoint: /api/account
+  allowCredentialCacheForJwt: true
+
+profiles:
+  dev:
+    apiHost: http://localhost:8081
+    useGateway: true
+    gatewayServiceName: warehouse
+    appName: Warehouse Console (DEV)
+    envName: dev
+    storageMode: get_storage
+    httpStrict: false
+
+  prod:
+    apiHost: https://gateway.example.com
+    useGateway: true
+    gatewayServiceName: warehouse
+    appName: Warehouse Console
+    envName: prod
+    storageMode: secure_storage
+    httpStrict: true
+    pinnedSha256Certs: []

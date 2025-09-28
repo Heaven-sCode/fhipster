@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
-import '../controllers/mediaAssets_controller.dart';
-import '../models/mediaAssets_model.dart';
-import '../forms/mediaAssets_form.dart';
+import '../controllers/media_assets_controller.dart';
+import '../models/media_assets_model.dart';
+import '../forms/media_assets_form.dart';
 import '../widgets/common/confirm_dialog.dart';
 import '../core/sync/sync_service.dart';
 
@@ -17,8 +17,6 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
   @override
   Widget build(BuildContext context) {
     final env = Env.get();
-    final syncService = Get.isRegistered<SyncService>() ? Get.find<SyncService>() : null;
-
 
     return AppShell(
       title: _title,
@@ -28,7 +26,6 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
         final total = controller.total.value;
         final page = controller.page.value;
         final size = controller.size.value;
-        final syncing = (syncService?.isSyncing.value ?? false);
 
         return Stack(
           children: [
@@ -123,8 +120,12 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
                                       tooltip: 'Delete'.tr,
                                       icon: const Icon(Icons.delete_outline),
                                       onPressed: () async {
-                                        final ok = await confirmDialog(context, title: 'Delete', message: 'Are you sure?'.tr);
-                                        if (ok) {
+                                        final ok = await showConfirmDialog(
+                                          context,
+                                          title: 'Delete',
+                                          message: 'Are you sure?'.tr,
+                                        );
+                                        if (ok == true) {
                                           await controller.deleteOne(m);
                                         }
                                       },
@@ -188,18 +189,6 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
             ),
               ],
             ),
-            if (syncing)
-              Positioned.fill(
-                child: IgnorePointer(
-                  ignoring: false,
-                  child: Container(
-                    color: Colors.black45,
-                    child: const Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
-                ),
-              ),
           ],
         );
       }),
@@ -314,4 +303,10 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
       ],
     ),
   );
+}
+
+String _formatTemporal(dynamic value) {
+  if (value == null) return '';
+  if (value is DateTime) return value.toIso8601String();
+  return value.toString();
 }

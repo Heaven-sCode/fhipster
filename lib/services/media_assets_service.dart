@@ -1,7 +1,7 @@
 import 'package:get/get.dart';
 import '../core/api_client.dart';
 import '../core/env/env.dart';
-import '../models/mediaAssets_model.dart';
+import '../models/media_assets_model.dart';
 
 /// Paged result holder (items + total count).
 class PagedResult<T> {
@@ -16,9 +16,9 @@ class MediaAssetsService {
 
   // Resolve paths using Env; allow per-service gateway override baked at generation time.
   final String? _micro = 'operationsModule';
-  late final String _plural = Env.get().pluralFor('MediaAssets');
-  String get _base => Env.get().entityBasePath(_plural, microserviceOverride: _micro);
-  String get _searchBase => Env.get().searchBasePath(_plural, microserviceOverride: _micro);
+  late final String _plural = Env.pluralFor('MediaAssets');
+  String get _base => Env.entityBasePath(_plural, microserviceOverride: _micro);
+  String get _searchBase => Env.searchBasePath(_plural, microserviceOverride: _micro);
 
   /// List with pagination, sorting and criteria filters.
   /// Returns only items; see [listPaged] to also get total.

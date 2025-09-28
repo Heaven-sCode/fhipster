@@ -43,7 +43,7 @@ class LoginController extends GetxController {
     super.onClose();
   }
 
-  Future<void> login() async {
+  Future<void> submit() async {
     final username = usernameCtrl.text.trim();
     final password = passwordCtrl.text;
 
@@ -60,9 +60,9 @@ class LoginController extends GetxController {
       if (ok && _auth.isAuthenticated) {
         // Store or clear remembered username
         if (rememberMe.value) {
-          _auth.rememberUsername(username);
+          await _auth.rememberUsername(username);
         } else {
-          _auth.forgetRememberedUsername();
+          await _auth.forgetRememberedUsername();
         }
         // Navigate to home
         Get.offAllNamed(AppRoutes.home);

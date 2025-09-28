@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../local_database.dart';
-import '../../models/media_assets_model.dart';
+import '../../../models/media_assets_model.dart';
 
 /// Basic DAO for MediaAssets. Persists serialized payloads locally for offline caching.
 class MediaAssetsDao {

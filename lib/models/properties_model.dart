@@ -1,7 +1,7 @@
 /// Generated model for Properties.
 /// Relationships are typed per cardinality and serialized using Env.relationshipPayloadMode.
 import '../core/env/env.dart';
-import '../models/mediaAssets_model.dart';
+import '../models/media_assets_model.dart';
 
 
 class PropertiesModel {

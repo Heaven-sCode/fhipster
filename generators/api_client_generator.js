@@ -4,6 +4,7 @@ function generateApiClientTemplate() {
   return `import 'dart:async';
 import 'dart:io';
 import 'package:get/get.dart';
+import 'package:get/get_connect/http/src/request/request.dart' as get_http;
 import 'package:crypto/crypto.dart';
 
 import 'env/env.dart';
@@ -38,17 +39,20 @@ class ApiClient extends GetConnect {
     });
 
     // Auto-refresh on 401 then retry once
-    httpClient.addResponseModifier((request, response) async {
+    httpClient.addResponseModifier((get_http.Request request, response) async {
       if (response.statusCode == 401) {
         final ok = await _auth.tryRefreshToken();
         if (ok) {
           final headers = await _headers(forceFresh: true);
+          final mergedHeaders = Map<String, String>.from(request.headers)..addAll(headers);
+          final bodyBytes = request.bodyBytes;
+          final body = bodyBytes != null && bodyBytes.isNotEmpty ? bodyBytes : null;
           return httpClient.request(
             request.url.toString(),
             request.method,
-            body: request.body,
-            headers: headers,
-            contentType: request.contentType,
+            body: body,
+            headers: mergedHeaders,
+            query: request.url.queryParameters,
           );
         }
       }

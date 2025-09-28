@@ -18,6 +18,7 @@ function lcFirst(s) {
 }
 
 const { jdlToDartType, isBooleanType, isEnumType, isDateType, isNumericType } = require('../parser/type_mapping');
+const { toFileName } = require('../utils/naming');
 
 function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
 
@@ -44,12 +45,12 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   });
 
   // Collect imports for related models & services
-  const relModelImports = Array.from(new Set(rels.map(r => `import '../models/${lcFirst(r.targetEntity)}_model.dart';`))).join('\n');
-  const relServiceImports = Array.from(new Set(rels.map(r => `import '../services/${lcFirst(r.targetEntity)}_service.dart';`))).join('\n');
+  const relModelImports = Array.from(new Set(rels.map(r => `import '../models/${toFileName(r.targetEntity)}_model.dart';`))).join('\n');
+  const relServiceImports = Array.from(new Set(rels.map(r => `import '../services/${toFileName(r.targetEntity)}_service.dart';`))).join('\n');
 
   // Enums used by primitive fields
   const enumTypesUsed = Array.from(new Set(fields.filter(f => !f.isRelationship && parsedEnums?.[f.type]).map(f => f.type)));
-  const enumImports = enumTypesUsed.map(e => `import '../enums/${lcFirst(e)}_enum.dart';`).join('\n');
+  const enumImports = enumTypesUsed.map(e => `import '../enums/${toFileName(e)}_enum.dart';`).join('\n');
 
   // TextEditingControllers for primitive (non-rel) inputs
   const primFields = fields.filter(f => !f.isRelationship && f.name !== 'id' && !(tenantEnabled && f.name === tenantFieldName));
@@ -115,15 +116,23 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
       return `      ${n}: ${n}.value,`;
     }
     const cat = categorizeField(f, parsedEnums);
-    if (cat === 'bool') return `      ${n}: ${n}.value,`;
-    if (cat === 'enum') return `      ${n}: ${n}.value,`;
-    if (cat === 'date') return `      ${n}: ${n}Ctrl.text.isEmpty ? null : DateTime.tryParse(${n}Ctrl.text),`;
+    if (cat === 'bool') {
+      return `      ${n}: ${n}.value,`;
+    }
+    if (cat === 'enum') {
+      return `      ${n}: ${n}.value,`;
+    }
+    if (cat === 'date') {
+      return `      ${n}: ${n}Ctrl.text.isEmpty ? null : DateTime.tryParse(${n}Ctrl.text),`;
+    }
     if (cat === 'number') {
       const dart = jdlToDartType(f.type, parsedEnums);
       if (dart === 'int') return `      ${n}: int.tryParse(${n}Ctrl.text),`;
       return `      ${n}: double.tryParse(${n}Ctrl.text),`;
     }
-    if (cat === 'json') return `      ${n}: ${n}Ctrl.text.isEmpty ? null : _tryParseJson(${n}Ctrl.text),`;
+    if (cat === 'json') {
+      return `      ${n}: ${n}Ctrl.text.isEmpty ? null : _tryParseJson(${n}Ctrl.text),`;
+    }
     return `      ${n}: ${n}Ctrl.text.isEmpty ? null : ${n}Ctrl.text,`;
   }).join('\n');
 
@@ -196,8 +205,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../core/env/env.dart';
-${syncImport}import '../models/${lcFirst(entityName)}_model.dart';
-import '../services/${lcFirst(entityName)}_service.dart';
+${syncImport}import '../models/${toFileName(entityName)}_model.dart';
+import '../services/${toFileName(entityName)}_service.dart';
 ${enumImports ? enumImports + '\n' : ''}${relModelImports ? relModelImports + '\n' : ''}${relServiceImports ? relServiceImports + '\n' : ''}
 
 /// Controller for ${entityName} list & form state.

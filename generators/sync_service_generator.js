@@ -1,14 +1,29 @@
+const path = require('path');
 const { toFileName, lcFirst, ucFirst } = require('../utils/naming');
+
+const CORE_SYNC_DIR = 'core/sync';
+
+function relativeImport(fromDir, target) {
+  return path.posix.relative(fromDir, target).replace(/\\/g, '/');
+}
 
 function generateSyncServiceTemplate(entityNames = []) {
   const safeEntities = Array.isArray(entityNames) ? entityNames : [];
   const hasEntities = safeEntities.length > 0;
 
+  const syncDir = CORE_SYNC_DIR;
+  const servicesDir = 'services';
+  const daoDir = 'core/local/dao';
+
   const serviceImports = hasEntities
-    ? safeEntities.map(name => `import '../../services/${toFileName(name)}_service.dart';`).join('\n')
+    ? safeEntities
+        .map(name => `import '${relativeImport(syncDir, path.posix.join(servicesDir, `${toFileName(name)}_service.dart`))}';`)
+        .join('\n')
     : '';
   const daoImports = hasEntities
-    ? safeEntities.map(name => `import '../local/dao/${toFileName(name)}_dao.dart';`).join('\n')
+    ? safeEntities
+        .map(name => `import '${relativeImport(syncDir, path.posix.join(daoDir, `${toFileName(name)}_dao.dart`))}';`)
+        .join('\n')
     : '';
 
   const daoFields = hasEntities

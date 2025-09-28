@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'core/auth/auth_service.dart';
+import 'auth/auth_service.dart';
 
 @immutable
 class AppDestination {
@@ -256,7 +256,7 @@ class _UserMenu extends StatelessWidget {
               child: ListTile(
                 leading: const Icon(Icons.person),
                 title: Text(auth.displayName ?? 'Profile'),
-                subtitle: Text(auth.username ?? ''),
+                subtitle: Text(auth.username.value ?? ''),
                 contentPadding: EdgeInsets.zero,
               ),
             ),

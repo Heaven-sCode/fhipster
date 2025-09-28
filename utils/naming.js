@@ -118,13 +118,13 @@ function tableViewClassName(entityName) { return `${pascalCase(entityName)}Table
 function enumDartType(enumName) { return pascalCase(enumName); }
 
 // -------------------- File names (your originals) --------------------
-function entityFileBase(entityName) { return `${camelCase(entityName)}`; }
+function entityFileBase(entityName) { return `${snakeCase(entityName)}`; }
 function modelFileName(entityName) { return `${entityFileBase(entityName)}_model.dart`; }
 function serviceFileName(entityName) { return `${entityFileBase(entityName)}_service.dart`; }
 function controllerFileName(entityName) { return `${entityFileBase(entityName)}_controller.dart`; }
 function formFileName(entityName) { return `${entityFileBase(entityName)}_form.dart`; }
 function tableViewFileName(entityName) { return `${entityFileBase(entityName)}_table_view.dart`; }
-function enumFileName(enumName) { return `${camelCase(enumName)}_enum.dart`; }
+function enumFileName(enumName) { return `${snakeCase(enumName)}_enum.dart`; }
 
 // -------------------- Routes & paths (your originals) --------------------
 function routePathForEntity(entityName) {
