@@ -42,8 +42,18 @@ class ApiClient extends GetConnect {
         if (ok) {
           final headers = await _headers(forceFresh: true);
           final mergedHeaders = Map<String, String>.from(request.headers)..addAll(headers);
-          final bodyBytes = request.bodyBytes;
-          final body = bodyBytes != null && bodyBytes.isNotEmpty ? bodyBytes : null;
+
+          List<int>? body;
+          final stream = request.bodyBytes;
+          if (stream != null) {
+            final buffer = <int>[];
+            await for (final chunk in stream) {
+              buffer.addAll(chunk);
+            }
+            if (buffer.isNotEmpty) {
+              body = buffer;
+            }
+          }
 
           return httpClient.request(
             request.url.toString(),

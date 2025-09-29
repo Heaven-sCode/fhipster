@@ -255,8 +255,8 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     final env = Env.get();
     final q = <String, dynamic>{};
 
-    if (page != null) q['page'] = page;
-    q['size'] = size ?? env.defaultPageSize;
+    if (page != null) q['page'] = page.toString();
+    q['size'] = (size ?? env.defaultPageSize).toString();
 
     final sorts = sort ?? env.defaultSort;
     if (sorts.isNotEmpty) {

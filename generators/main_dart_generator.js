@@ -33,8 +33,8 @@ ${sqliteInit}
     Env.setProfile('dev');
   }
 
-  if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
+  if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<ConnectivityService>()) Get.put(ConnectivityService(), permanent: true);
 ${syncRegistration}
   runApp(const FHipsterApp());

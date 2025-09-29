@@ -76,6 +76,7 @@ function main() {
     .option('outputDir', { alias: 'o', type: 'string', describe: 'Output directory (usually your Flutter lib/)' })
     .option('includeAuthGuards', { type: 'boolean', describe: 'Attach AuthMiddleware/RoleMiddleware to routes' })
     .option('emitMain', { type: 'boolean', describe: 'Also generate lib/main.dart (profiles-aware)' })
+    .option('enableSQLite', { type: 'boolean', describe: 'Generate offline SQLite cache (disable for web builds)' })
     .option('only', { type: 'string', describe: 'Only generate these entities (comma-separated)' })
     .option('skipParts', { type: 'string', describe: 'Skip parts: models,services,controllers,forms,views,enums,core,widgets,routes,main' })
     .option('force', { alias: 'f', type: 'boolean', default: false, describe: 'Overwrite existing files' })
@@ -87,7 +88,6 @@ function main() {
   // YAML
   const yamlConfig = loadYamlConfig(argv.config);
 
-  const enableSQLite = yamlConfig.enableSQLite ?? false;
 
   // Inputs
   const jdlFilePath = resolveJdlPath(argv._[0] || yamlConfig.jdlFile);
@@ -116,6 +116,7 @@ function main() {
 
   // Build profiles from YAML
   const { devProfile, prodProfile } = buildProfilesFromYaml(yamlConfig, argv);
+  const enableSQLite = pick(argv.enableSQLite, yamlConfig.enableSQLite, true);
 
   if (!fs.existsSync(jdlFilePath)) {
     console.error(`❌ JDL file not found at '${jdlFilePath}'`);

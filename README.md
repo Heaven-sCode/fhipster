@@ -168,7 +168,8 @@ main.dart
   - `core/connectivity/connectivity_service.dart` to track offline/online windows
   - `core/sync/sync_service.dart` to push local changes, refresh remote data, and expose `isSyncing`
 - Generated controllers/views call `SyncService.syncNow()` (guarded with `catchError`) and table views show an overlay loader while syncing.
-- A sample manifest, `pubspec.offline_sample.yaml`, is emitted in the project root listing the required packages (`get_storage`, `connectivity_plus`, `sqflite`, `path`, `path_provider`, …). Merge those into your real `pubspec.yaml` before running `flutter pub get`.
+- A sample manifest, `pubspec.offline_sample.yaml`, is emitted in the project root listing the required packages (`get_storage`, `connectivity_plus`, `sqflite`, `path`, `sqflite_common_ffi_web`, …). Merge those into your real `pubspec.yaml` before running `flutter pub get`. If you build for web, also copy `sqflite_sw.js` and its map from that package’s `lib` folder into your web output so the worker can initialize.
+- Want to skip the SQLite layer (e.g., for a Pure Web app)? Set `enableSQLite: false` in your YAML or run the CLI with `--enableSQLite=false`. Mobile/desktop builds can leave it enabled to keep offline caching.
 - Use `syncIntervalMinutes` (global or per profile) to control how often the background sync timer runs.
 - When `tenantIsolationEnabled` is true, all generated REST calls (including search) automatically include the tenant filter; the SQLite cache stores `server_updated_at` & `local_updated_at` so you can extend the merge logic easily.
 

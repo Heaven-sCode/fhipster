@@ -17,7 +17,7 @@ class AppDestination {
   });
 }
 
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   final String title;
   final Widget body;
   final List<AppDestination> navDestinations;
@@ -37,8 +37,23 @@ class AppShell extends StatelessWidget {
     this.showUserMenu = true,
   });
 
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
   static const _wideBreakpoint = 1000.0;
   static const _railMin = 72.0;
+
+  bool _railVisible = true;
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.navDestinations.isEmpty && _railVisible) {
+      _railVisible = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,103 +61,92 @@ class AppShell extends StatelessWidget {
     final isWide = width >= _wideBreakpoint;
 
     final current = Get.currentRoute.isEmpty ? '/' : Get.currentRoute;
-    final selectedIndex = _selectedIndex(current, navDestinations);
+    final selectedIndex = _selectedIndex(current, widget.navDestinations);
 
     final auth = Get.isRegistered<AuthService>() ? Get.find<AuthService>() : null;
 
-    final menuButton = IconButton(
-      icon: const Icon(Icons.menu),
-      onPressed: () {
-        if (!isWide) {
-          Scaffold.of(context).openDrawer();
-        }
-      },
-      tooltip: 'Menu',
-    );
-
-    final userMenu = showUserMenu && auth != null
+    final userMenu = widget.showUserMenu && auth != null
         ? _UserMenu(auth: auth)
         : const SizedBox.shrink();
 
     final List<Widget> appBarActions = [
-      ...(actions ?? const []),
-      if (showUserMenu) userMenu,
+      ...(widget.actions ?? const []),
+      if (widget.showUserMenu) userMenu,
     ];
 
+    final leadingButton = Builder(
+      builder: (ctx) => IconButton(
+        icon: const Icon(Icons.menu),
+        onPressed: () {
+          if (isWide) {
+            setState(() {
+              _railVisible = !_railVisible;
+            });
+          } else {
+            Scaffold.of(ctx).openDrawer();
+          }
+        },
+        tooltip: 'Menu',
+      ),
+    );
+
     final appBar = AppBar(
-      title: Text(title),
-      leading: isWide ? null : Builder(builder: (ctx) => menuButton),
+      title: Text(widget.title),
+      leading: widget.navDestinations.isEmpty ? null : leadingButton,
       actions: appBarActions,
     );
 
     final drawer = _AppDrawer(
-      destinations: navDestinations,
+      destinations: widget.navDestinations,
       selectedIndex: selectedIndex,
-      onTap: (i) => _go(navDestinations[i].route),
+      onTap: (i) => _go(widget.navDestinations[i].route),
     );
 
     final rail = _NavigationRail(
-      destinations: navDestinations,
+      destinations: widget.navDestinations,
       selectedIndex: selectedIndex,
-      onSelect: (i) => _go(navDestinations[i].route),
+      onSelect: (i) => _go(widget.navDestinations[i].route),
     );
 
     if (isWide) {
-      // Rail layout
       return Scaffold(
         appBar: appBar,
         body: Row(
           children: [
-            if (navDestinations.isNotEmpty) rail,
-            const VerticalDivider(width: 1),
+            if (widget.navDestinations.isNotEmpty && _railVisible) rail,
+            if (widget.navDestinations.isNotEmpty && _railVisible)
+              const VerticalDivider(width: 1),
             Expanded(
               child: SafeArea(
                 child: Padding(
-                  padding: bodyPadding,
-                  child: body,
+                  padding: widget.bodyPadding,
+                  child: widget.body,
                 ),
               ),
             ),
           ],
         ),
-        floatingActionButton: floatingActionButton,
+        floatingActionButton: widget.floatingActionButton,
       );
     }
 
-    // Drawer layout
     return Scaffold(
       appBar: appBar,
-      drawer: navDestinations.isEmpty ? null : drawer,
+      drawer: widget.navDestinations.isEmpty ? null : drawer,
       body: SafeArea(
         child: Padding(
-          padding: bodyPadding,
-          child: body,
+          padding: widget.bodyPadding,
+          child: widget.body,
         ),
       ),
-      floatingActionButton: floatingActionButton,
-      // Optional: a bottom nav if you want (commented out by default)
-      // bottomNavigationBar: navDestinations.length >= 2
-      //     ? NavigationBar(
-      //         selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
-      //         onDestinationSelected: (i) => _go(navDestinations[i].route),
-      //         destinations: navDestinations
-      //             .map((d) => NavigationDestination(
-      //                   icon: Icon(d.icon),
-      //                   selectedIcon: d.selectedIcon != null ? Icon(d.selectedIcon) : null,
-      //                   label: d.label,
-      //                 ))
-      //             .toList(),
-      //       )
-      //     : null,
+      floatingActionButton: widget.floatingActionButton,
     );
   }
 
   int _selectedIndex(String currentRoute, List<AppDestination> items) {
     if (items.isEmpty) return -1;
-    // Try exact match first
     final exact = items.indexWhere((d) => d.route == currentRoute);
     if (exact >= 0) return exact;
-    // Try startsWith (to handle nested routes like /order/123/edit)
     for (int i = 0; i < items.length; i++) {
       if (currentRoute.startsWith(items[i].route)) return i;
     }
@@ -151,7 +155,6 @@ class AppShell extends StatelessWidget {
 
   void _go(String route) {
     if (Get.currentRoute == route) return;
-    // Prefer offNamedUntil to avoid huge stacks for lateral nav
     Get.offNamedUntil(route, (r) => r.settings.name == route || r.isFirst);
   }
 }
@@ -222,7 +225,7 @@ class _NavigationRail extends StatelessWidget {
       return const SizedBox(width: 0, height: double.infinity);
     }
     return NavigationRail(
-      minWidth: AppShell._railMin,
+      minWidth: _AppShellState._railMin,
       selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
       onDestinationSelected: onSelect,
       labelType: NavigationRailLabelType.selected,

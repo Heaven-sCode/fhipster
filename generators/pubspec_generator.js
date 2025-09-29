@@ -10,7 +10,7 @@ function generateSamplePubspec({ enableSQLite = false } = {}) {
   if (enableSQLite) {
     dependencies.sqflite = '^2.3.0';
     dependencies.path = '^1.8.3';
-    dependencies.path_provider = '^2.1.2';
+    dependencies.sqflite_common_ffi_web = '^0.4.0';
   }
 
   const lines = [];

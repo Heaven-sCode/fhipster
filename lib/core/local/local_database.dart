@@ -1,10 +1,9 @@
-// Requires sqflite and path_provider packages in pubspec.yaml.
+// Requires sqflite (and sqflite_common_ffi_web for web builds).
 
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 /// Lightweight SQLite bootstrap used by the generated DAOs.
 class LocalDatabase {
@@ -21,17 +20,33 @@ class LocalDatabase {
   }
 
   Future<Database> _open() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final dbPath = join(directory.path, 'fhipster_cache.db');
+    Future<void> configure(Database db) async {
+      await db.execute('PRAGMA foreign_keys = ON');
+    }
+
+    Future<void> onCreate(Database db, int version) async {
+      await _createTables(db);
+    }
+
+    if (kIsWeb) {
+      final factory = databaseFactoryFfiWeb;
+      return factory.openDatabase(
+        'fhipster_cache.db',
+        options: OpenDatabaseOptions(
+          version: 1,
+          onConfigure: configure,
+          onCreate: onCreate,
+        ),
+      );
+    }
+
+    final dbDir = await getDatabasesPath();
+    final dbPath = join(dbDir, 'fhipster_cache.db');
     return openDatabase(
       dbPath,
       version: 1,
-      onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-      },
-      onCreate: (db, version) async {
-        await _createTables(db);
-      },
+      onConfigure: configure,
+      onCreate: onCreate,
     );
   }
 
