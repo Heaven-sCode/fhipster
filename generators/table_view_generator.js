@@ -18,6 +18,7 @@ function labelize(fieldName) {
     .trim();
 }
 const { toFileName } = require('../utils/naming');
+const { navDestinationsString } = require('./helpers/nav_destinations');
 
 function generateTableViewTemplate(entityName, fields, allEntities = {}, options = {}) {
   const className = `${entityName}TableView`;
@@ -25,6 +26,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
   const enableSQLite = !!options.enableSQLite;
+  const navItems = navDestinationsString(options.navRoutes || []);
 
   // Determine child creation shortcuts for one-to-many relationships
   const childRelInfos = (fields || [])
@@ -110,6 +112,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 import 'package:get/get.dart';
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
+import '../core/routes.dart';
 import '../controllers/${toFileName(entityName)}_controller.dart';
 import '../models/${toFileName(entityName)}_model.dart';
 import '../forms/${toFileName(entityName)}_form.dart';
@@ -127,6 +130,9 @@ class ${className} extends GetView<${controllerClass}> {
 
     return AppShell(
       title: _title,
+      navDestinations: const [
+${navItems}
+      ],
       body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;

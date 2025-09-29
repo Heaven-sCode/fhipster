@@ -229,6 +229,7 @@ function main() {
   console.log('• Generating entities (models/services/controllers/forms/views) ...');
 
   const entityRoutes = [];
+  const navRoutes = [];
   const generatedServiceEntities = new Set();
   if (entities) {
     for (const [entityName, fields] of Object.entries(entities)) {
@@ -248,6 +249,10 @@ function main() {
       if (devProfile.tenantIsolationEnabled && devProfile.tenantFieldName && !tenantIsolation.enabled) {
         console.warn(`⚠️ Tenant isolation enabled but field '${devProfile.tenantFieldName}' not found on entity '${entityName}'.`);
       }
+
+      const pluralPathSeg = resourcePlural(entityName, devProfile.pluralOverrides || {});
+      const routePath = `/${pluralPathSeg}`;
+      navRoutes.push({ path: routePath, label: entityName });
 
       if (shouldGen('models')) {
         writeFile(path.join(dirs.modelsDir, modelF), generateModelTemplate(entityName, fields, enums), force, `models/${modelF}`);
@@ -273,16 +278,16 @@ function main() {
         writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums, { tenantIsolation }), force, `forms/${formF}`);
       }
       if (shouldGen('views')) {
-        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite }), force, `views/${viewF}`);
+        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite, navRoutes }), force, `views/${viewF}`);
       }
 
-      const pluralPathSeg = resourcePlural(entityName, devProfile.pluralOverrides || {});
       entityRoutes.push({
-        path: `/${pluralPathSeg}`,
+        path: routePath,
         controllerFile: controllerF,
         viewFile: viewF,
         controllerClass: controllerClassName(entityName),
         viewClass: tableViewClassName(entityName),
+        label: entityName,
         roles: [],
       });
     }
@@ -312,7 +317,7 @@ function main() {
     if (shouldGen('views')) {
       writeFile(path.join(dirs.viewsDir, 'splash_view.dart'), generateSplashViewTemplate(), force, 'views/splash_view.dart');
       writeFile(path.join(dirs.viewsDir, 'login_view.dart'), generateLoginViewTemplate(), force, 'views/login_view.dart');
-      writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(), force, 'views/home_view.dart');
+      writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(navRoutes), force, 'views/home_view.dart');
       writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
       writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
     }

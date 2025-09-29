@@ -95,27 +95,36 @@ class _AppShellState extends State<AppShell> {
       if (widget.showUserMenu) userMenu,
     ];
 
-    final leadingButton = widget.navDestinations.isEmpty
-        ? null
-        : Builder(
-            builder: (ctx) => IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () {
-                if (isWide) {
-                  setState(() {
-                    _railVisible = !_railVisible;
-                  });
-                } else {
-                  Scaffold.of(ctx).openDrawer();
-                }
-              },
-              tooltip: 'Menu',
-            ),
-          );
+    Widget? leading;
+    if (!isWide && widget.navDestinations.isNotEmpty) {
+      leading = Builder(
+        builder: (ctx) => IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () => Scaffold.of(ctx).openDrawer(),
+          tooltip: 'Menu',
+        ),
+      );
+    }
+
+    final titleRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isWide && widget.navDestinations.isNotEmpty) ...[
+          IconButton(
+            icon: Icon(_railVisible ? Icons.menu_open : Icons.menu),
+            onPressed: () => setState(() => _railVisible = !_railVisible),
+            tooltip: _railVisible ? 'Hide navigation' : 'Show navigation',
+          ),
+          const SizedBox(width: 8),
+        ],
+        Text(widget.title),
+      ],
+    );
 
     final appBar = AppBar(
-      title: Text(widget.title),
-      leading: leadingButton,
+      automaticallyImplyLeading: false,
+      title: titleRow,
+      leading: leading,
       actions: appBarActions,
     );
 
@@ -197,6 +206,7 @@ class _AppDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     if (destinations.isEmpty) return const SizedBox.shrink();
     return Drawer(
+      width: 320,
       child: SafeArea(
         child: ListView.builder(
           itemCount: destinations.length + 1,
@@ -216,8 +226,14 @@ class _AppDrawer extends StatelessWidget {
             final d = destinations[i];
             final selected = i == selectedIndex;
             return ListTile(
-              leading: Icon(d.icon),
-              title: Text(d.label),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+              title: Row(
+                children: [
+                  Expanded(child: Text(d.label)),
+                  const SizedBox(width: 8),
+                  Icon(d.icon),
+                ],
+              ),
               selected: selected,
               onTap: () {
                 Navigator.of(context).maybePop();

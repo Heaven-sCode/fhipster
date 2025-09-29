@@ -5,12 +5,17 @@
 // - Shows environment summary and quick actions
 // - Safe to use without an explicit HomeController
 
-function generateHomeViewTemplate() {
+const { navDestinationsString } = require('./helpers/nav_destinations');
+
+function generateHomeViewTemplate(entityRoutes = []) {
+  const navItems = navDestinationsString(entityRoutes);
+
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
 import '../core/auth/auth_service.dart';
+import '../core/routes.dart';
 
 class HomeView extends StatelessWidget {
   const HomeView({super.key});
@@ -22,6 +27,9 @@ class HomeView extends StatelessWidget {
 
     return AppShell(
       title: 'Home',
+      navDestinations: const [
+${navItems}
+      ],
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
