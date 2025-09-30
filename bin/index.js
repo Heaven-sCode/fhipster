@@ -286,7 +286,7 @@ function main() {
         writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums, { tenantIsolation }), force, `forms/${formF}`);
       }
       if (shouldGen('views')) {
-        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite, navRoutes }), force, `views/${viewF}`);
+        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite, navRoutes, enums }), force, `views/${viewF}`);
       }
 
       entityRoutes.push({

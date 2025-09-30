@@ -5,6 +5,7 @@ function generateSamplePubspec({ enableSQLite = false } = {}) {
   get: '^4.6.6',
   get_storage: '^2.1.1',
     connectivity_plus: '^5.0.2',
+    intl: '^0.18.1',
   };
 
   if (enableSQLite) {

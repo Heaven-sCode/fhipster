@@ -17,8 +17,28 @@ function labelize(fieldName) {
     .replace(/^./, (c) => c.toUpperCase())
     .trim();
 }
+function sanitizeEnumMember(name) {
+  let s = String(name || '').trim();
+  if (!s) s = 'UNKNOWN';
+  s = s.replace(/[^A-Za-z0-9_]/g, '_');
+  if (/^[0-9]/.test(s)) s = '_' + s;
+  return s;
+}
+function enumTokenLabel(token) {
+  const raw = String(token || '').trim();
+  if (!raw) return '';
+  const spaced = raw
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_\-]+/g, ' ');
+  return spaced
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
 const { toFileName } = require('../utils/naming');
 const { navDestinationsString } = require('./helpers/nav_destinations');
+const { jdlToDartType } = require('../parser/type_mapping');
 
 function generateTableViewTemplate(entityName, fields, allEntities = {}, options = {}) {
   const className = `${entityName}TableView`;
@@ -27,6 +47,13 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const instance = lcFirst(entityName);
   const enableSQLite = !!options.enableSQLite;
   const navItems = navDestinationsString(options.navRoutes || []);
+  const parsedEnums = options.enums || {};
+  const fieldTypes = fields.map((f) => ({
+    field: f,
+    dartType: jdlToDartType(f.type, parsedEnums),
+    isEnum: !!parsedEnums[f.type],
+  }));
+  const enumTypesUsed = Array.from(new Set(fieldTypes.filter(info => info.isEnum).map(info => info.field.type)));
 
   // Determine child creation shortcuts for one-to-many relationships
   const childRelInfos = (fields || [])
@@ -52,6 +79,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 
   const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
   const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
+  const childActionButtons = childRelInfos.map((info) => `                                    IconButton(\n                                      tooltip: 'View ${info.childEntity}'.tr,\n                                      icon: const Icon(Icons.visibility),\n                                      onPressed: () => _openChildListDialog(context, title: '${info.childEntity}'.tr, items: m.${info.fieldName}),\n                                    ),\n                                    IconButton(\n                                      tooltip: 'Add ${info.childEntity}'.tr,\n                                      icon: const Icon(Icons.add),\n                                      onPressed: () => _quickCreate${info.childEntity}${cap(info.fieldName)}(context, m),\n                                    ),`).join('\n');
 
   // Build DataColumn list (headers)
   const dataColumns = fields.map(f => {
@@ -60,31 +88,34 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   }).join(',\n');
 
   // Build cell renderers per field
-  const cellExprs = fields.map(f => {
+  const cellExprs = fieldTypes.map((info) => {
+    const f = info.field;
     const n = f.name;
     if (f.isRelationship) {
       const kind = (f.relationshipType || '').toLowerCase();
       if (kind === 'onetomany' || kind === 'manytomany') {
+        const childInfo = childRelMap[f.name];
+        if (childInfo) {
+          return `Row(\n            mainAxisSize: MainAxisSize.min,\n            children: [\n              Text(((m.${n}?.length) ?? 0).toString()),\n              const SizedBox(width: 8),\n              IconButton(\n                tooltip: 'View ${childInfo.childEntity}'.tr,\n                icon: const Icon(Icons.visibility),\n                onPressed: () => _openChildListDialog(context, title: '${childInfo.childEntity}'.tr, items: m.${n}),\n              ),\n              IconButton(\n                tooltip: 'Add ${childInfo.childEntity}'.tr,\n                icon: const Icon(Icons.add),\n                onPressed: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m),\n              ),\n            ],\n          )`;
+        }
         return `Text(((m.${n}?.length) ?? 0).toString())`;
       }
-      // single rel: show related id if present
       return `Text(m.${n}?.id?.toString() ?? '')`;
-    } else {
-      // primitive
-      // DateTime-like
-      // We cannot import type mapping here; rely on name heuristics & runtime type.
-      // Safer: call .toString(), but prettify booleans and dates if possible.
-      if (n.toLowerCase().includes('date') || n.toLowerCase().includes('time')) {
-        return `Text(_formatTemporal(m.${n}))`;
-      }
-      return `Text(m.${n} == null ? '' : m.${n}.toString())`;
     }
+    if (info.isEnum) {
+      return `Text(_enumLabel(m.${n}))`;
+    }
+    if (info.dartType === 'DateTime') {
+      return `Text(_formatTemporal(m.${n}))`;
+    }
+    return `Text(m.${n} == null ? '' : m.${n}.toString())`;
   });
 
   const dataCells = cellExprs.map(expr => `          DataCell(${expr})`).join(',\n');
 
   // Details rows for "View" dialog
-  const detailRows = fields.map(f => {
+  const detailRows = fieldTypes.map((info) => {
+    const f = info.field;
     const label = labelize(f.name);
     let valueExpr;
     if (f.isRelationship) {
@@ -93,13 +124,15 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
         valueExpr = `((m.${f.name}?.length) ?? 0).toString()`;
         const childInfo = childRelMap[f.name];
         if (childInfo) {
-          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m)),`;
+          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m), secondaryActionLabel: 'View ${childInfo.childEntity}'.tr, onSecondaryAction: () => _openChildListDialog(context, title: '${childInfo.childEntity}'.tr, items: m.${f.name})),`;
         }
       } else {
         valueExpr = `m.${f.name}?.id?.toString() ?? ''`;
       }
-    } else if (f.name.toLowerCase().includes('date') || f.name.toLowerCase().includes('time')) {
-    valueExpr = `_formatTemporal(m.${f.name})`;
+    } else if (info.isEnum) {
+      valueExpr = `_enumLabel(m.${f.name})`;
+    } else if (info.dartType === 'DateTime') {
+      valueExpr = `_formatTemporal(m.${f.name})`;
     } else {
       valueExpr = `m.${f.name}?.toString() ?? ''`;
     }
@@ -107,6 +140,38 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   }).join('\n');
 
   const syncImport = enableSQLite ? "import '../core/sync/sync_service.dart';\n" : '';
+
+  const enumImports = enumTypesUsed
+    .map(e => `import '../enums/${toFileName(e)}_enum.dart';`)
+    .join('\n');
+
+  const enumLabelMaps = enumTypesUsed.map((enumName) => {
+    const values = parsedEnums[enumName] || [];
+    const seen = new Set();
+    const entries = values
+      .map((original) => {
+        const sanitized = sanitizeEnumMember(original);
+        if (seen.has(sanitized)) return null;
+        seen.add(sanitized);
+        const label = enumTokenLabel(original).replace(/'/g, "\\'");
+        return `    ${enumName}.${sanitized}: '${label}',`;
+      })
+      .filter(Boolean)
+      .join('\n');
+    return `const Map<${enumName}, String> _${lcFirst(enumName)}Labels = {\n${entries}\n  };`;
+  }).join('\n\n');
+
+  const enumTokenLabelEntries = [];
+  enumTypesUsed.forEach((enumName) => {
+    (parsedEnums[enumName] || []).forEach((token) => {
+      const key = token;
+      const label = enumTokenLabel(token).replace(/'/g, "\\'");
+      enumTokenLabelEntries.push(`  '${key}': '${label}',`);
+    });
+  });
+  const enumTokenLabelMap = enumTokenLabelEntries.length
+    ? `const Map<String, String> _enumTokenLabels = {\n${Array.from(new Set(enumTokenLabelEntries)).join('\n')}\n};`
+    : 'const Map<String, String> _enumTokenLabels = {};';
 
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -117,6 +182,7 @@ import '../controllers/${toFileName(entityName)}_controller.dart';
 import '../models/${toFileName(entityName)}_model.dart';
 import '../forms/${toFileName(entityName)}_form.dart';
 import '../widgets/common/confirm_dialog.dart';
+${enumImports ? enumImports + '\n' : ''}
 ${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${syncImport}
 
 class ${className} extends GetView<${controllerClass}> {
@@ -441,6 +507,34 @@ String _formatTemporal(dynamic value) {
   if (value == null) return '';
   if (value is DateTime) return value.toIso8601String();
   return value.toString();
+}
+${enumLabelMaps ? '\n' + enumLabelMaps + '\n' : ''}
+${enumTokenLabelMap}\n
+String _enumLabel(Object? value) {
+  if (value == null) return '';
+${enumTypesUsed.map(enumName => `  if (value is ${enumName}) {
+    return _${lcFirst(enumName)}Labels[value] ?? _enumTokenLabels[value.toString().split('.').last] ?? _humanizeEnumToken(value.toString().split('.').last);
+  }`).join('\n')}
+  if (value is Enum) {
+    final token = value.toString().split('.').last;
+    return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+  }
+  final raw = value.toString();
+  final token = raw.contains('.') ? raw.split('.').last : raw;
+  return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+}
+
+String _humanizeEnumToken(String token) {
+  if (token.isEmpty) return '';
+  final spaced = token
+      .replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2')
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .trim();
+  if (spaced.isEmpty) return '';
+  final parts = spaced.split(RegExp('\\\\s+'));
+  return parts
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
+      .join(' ');
 }
 `;
 }
