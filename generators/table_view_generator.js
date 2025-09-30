@@ -78,14 +78,34 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const childRelMap = {};
   childRelInfos.forEach((info) => { childRelMap[info.fieldName] = info; });
 
+  const childShowInfos = (fields || [])
+    .filter((f) => {
+      if (!f || !f.isRelationship) return false;
+      const kind = String(f.relationshipType || '').toLowerCase();
+      return kind === 'onetomany' || kind === 'manytomany';
+    })
+    .map((f) => {
+      if (!f.targetEntity) return null;
+      return {
+        fieldName: f.name,
+        childEntity: f.targetEntity,
+        label: labelize(f.name),
+      };
+    })
+    .filter(Boolean);
+
   const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
   const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
-  const childActionButtons = childRelInfos.map((info) => `                                    IconButton(\n                                      tooltip: 'View ${info.childEntity}'.tr,\n                                      icon: const Icon(Icons.visibility),\n                                      onPressed: () => _openChildListDialog(context, title: '${info.childEntity}'.tr, items: m.${info.fieldName}),\n                                    ),\n                                    IconButton(\n                                      tooltip: 'Add ${info.childEntity}'.tr,\n                                      icon: const Icon(Icons.add),\n                                      onPressed: () => _quickCreate${info.childEntity}${cap(info.fieldName)}(context, m),\n                                    ),`).join('\n');
 
   // Build DataColumn list (headers)
-  const dataColumns = fields.map(f => {
+  const fieldColumnEntries = fields.map(f => {
     const label = labelize(f.name);
     return `        const DataColumn(label: Text('${label}'))`;
+  }).join(',\n');
+
+  const childColumnEntries = childShowInfos.map((info) => {
+    const label = info.label.replace(/'/g, "\\'");
+    return `        DataColumn(label: Text('Show ${label}'))`;
   }).join(',\n');
 
   // Build cell renderers per field
@@ -95,10 +115,6 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     if (f.isRelationship) {
       const kind = (f.relationshipType || '').toLowerCase();
       if (kind === 'onetomany' || kind === 'manytomany') {
-        const childInfo = childRelMap[f.name];
-        if (childInfo) {
-          return `Row(\n            mainAxisSize: MainAxisSize.min,\n            children: [\n              Text(((m.${n}?.length) ?? 0).toString()),\n              const SizedBox(width: 8),\n              IconButton(\n                tooltip: 'View ${childInfo.childEntity}'.tr,\n                icon: const Icon(Icons.visibility),\n                onPressed: () => _openChildListDialog(context, title: '${childInfo.childEntity}'.tr, items: m.${n}),\n              ),\n              IconButton(\n                tooltip: 'Add ${childInfo.childEntity}'.tr,\n                icon: const Icon(Icons.add),\n                onPressed: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m),\n              ),\n            ],\n          )`;
-        }
         return `Text(((m.${n}?.length) ?? 0).toString())`;
       }
       return `Text(m.${n}?.id?.toString() ?? '')`;
@@ -112,7 +128,18 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     return `Text(m.${n} == null ? '' : m.${n}.toString())`;
   });
 
-  const dataCells = cellExprs.map(expr => `          DataCell(${expr})`).join(',\n');
+  const fieldCells = cellExprs.map(expr => `          DataCell(${expr})`);
+
+  const childRelationCells = childShowInfos.map((info) => {
+    const childLabel = info.label.replace(/'/g, "\\'");
+    const quickInfo = childRelMap[info.fieldName];
+    const addButton = quickInfo
+      ? `              FilledButton.icon(\n                onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n                icon: const Icon(Icons.add),\n                label: Text('Add ${labelize(quickInfo.childEntity).replace(/'/g, "\\'")}'.tr),\n              ),`
+      : '';
+    return `          DataCell(Wrap(\n            spacing: 8,\n            runSpacing: 8,\n            children: [\n              FilledButton.icon(\n                onPressed: () => _openChildListDialog(\n                  context,\n                  title: '${childLabel}'.tr,\n                  items: m.${info.fieldName},\n                ),\n                icon: const Icon(Icons.visibility),\n                label: Text('Show ${childLabel}'.tr),\n              ),\n${addButton ? `${addButton}\n` : ''}            ],\n          ))`;
+  });
+
+  const allDataCells = fieldCells.concat(childRelationCells);
 
   // Details rows for "View" dialog
   const detailRows = fieldTypes.map((info) => {
@@ -174,6 +201,8 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const enumTokenLabelMap = enumTokenLabelEntries.length
     ? `const Map<String, String> _enumTokenLabels = {\n${Array.from(new Set(enumTokenLabelEntries)).join('\n')}\n};`
     : 'const Map<String, String> _enumTokenLabels = {};';
+
+  const columnEntries = [fieldColumnEntries, childColumnEntries, "        DataColumn(label: Text('Actions'))"].filter(Boolean).join(',\n');
 
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -270,12 +299,11 @@ ${navItems}
                             dataRowMinHeight: 40,
                             dataRowMaxHeight: 56,
                             columns: const [
-${dataColumns},
-                              DataColumn(label: Text('Actions')),
+${columnEntries}
                             ],
                             rows: rows.map((m) => DataRow(
                               cells: [
-${dataCells},
+${allDataCells.join(',\n')},
                                 DataCell(Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -372,6 +400,42 @@ ${dataCells},
   }
 
   // --------- dialogs ---------
+
+  void _openChildListDialog(BuildContext context, {required String title, Iterable<dynamic>? items}) {
+    final childItems = (items ?? const <dynamic>[]).toList();
+
+    Get.dialog(
+      Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(title),
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Get.back(),
+                ),
+              ],
+            ),
+            body: childItems.isEmpty
+                ? Center(child: Text('No records found'.tr))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    separatorBuilder: (_, __) => const Divider(height: 24),
+                    itemBuilder: (context, index) {
+                      final item = childItems[index];
+                      return SelectableText(item.toString());
+                    },
+                    itemCount: childItems.length,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
 
   void _openFormDialog(BuildContext context, {required String title}) {
     _showFormDialog(context, title: title, body: ${entityName}Form());
