@@ -54,6 +54,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     isEnum: !!parsedEnums[f.type],
   }));
   const enumTypesUsed = Array.from(new Set(fieldTypes.filter(info => info.isEnum).map(info => info.field.type)));
+  const usesTemporalField = fieldTypes.some((info) => info.dartType === 'DateTime');
 
   // Determine child creation shortcuts for one-to-many relationships
   const childRelInfos = (fields || [])
@@ -140,6 +141,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   }).join('\n');
 
   const syncImport = enableSQLite ? "import '../core/sync/sync_service.dart';\n" : '';
+  const intlImport = usesTemporalField ? "import 'package:intl/intl.dart';\n" : '';
 
   const enumImports = enumTypesUsed
     .map(e => `import '../enums/${toFileName(e)}_enum.dart';`)
@@ -175,6 +177,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+${intlImport}
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
 import '../core/routes.dart';
@@ -503,11 +506,34 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
   );
 }
 
-String _formatTemporal(dynamic value) {
+${usesTemporalField
+    ? `String _formatTemporal(dynamic value) {
   if (value == null) return '';
-  if (value is DateTime) return value.toIso8601String();
+  DateTime? parsed;
+  if (value is DateTime) {
+    parsed = value;
+  } else if (value is String) {
+    parsed = DateTime.tryParse(value);
+  } else if (value is num) {
+    if (value >= 1000000000000) {
+      parsed = DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
+    } else if (value >= 1000000000) {
+      parsed = DateTime.fromMillisecondsSinceEpoch((value * 1000).toInt(), isUtc: true);
+    }
+  }
+  if (parsed != null) {
+    final local = parsed.isUtc ? parsed.toLocal() : parsed;
+    final hasTime = local.hour != 0 || local.minute != 0 || local.second != 0 || local.millisecond != 0 || local.microsecond != 0;
+    final locale = Get.locale?.toString();
+    final formatter = hasTime ? DateFormat.yMMMd(locale).add_jm() : DateFormat.yMMMd(locale);
+    return formatter.format(local);
+  }
   return value.toString();
-}
+}`
+    : `String _formatTemporal(dynamic value) {
+  if (value == null) return '';
+  return value.toString();
+}`}
 ${enumLabelMaps ? '\n' + enumLabelMaps + '\n' : ''}
 ${enumTokenLabelMap}\n
 String _enumLabel(Object? value) {
