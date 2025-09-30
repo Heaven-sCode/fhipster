@@ -260,6 +260,9 @@ class Env {
     if (_irregularPlurals.containsKey(lower)) {
       return _irregularPlurals[lower]!;
     }
+    if (lower.endsWith('ss')) {
+      return ${dartStringLiteral(DOLLAR + '{lower}es')};
+    }
     if (lower.endsWith('s')) return lower;
     if (_consonantY.hasMatch(lower)) {
       return lower.substring(0, lower.length - 1) + 'ies';
@@ -315,6 +318,7 @@ class Env {
     'tooth': 'teeth',
     'foot': 'feet',
     'ox': 'oxen',
+    'address': 'addresses',
   };
 
   static final RegExp _consonantY = RegExp(r'[bcdfghjklmnpqrstvwxyz]y$');

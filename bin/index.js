@@ -230,6 +230,16 @@ function main() {
 
   const entityRoutes = [];
   const navRoutes = [];
+  const navRouteMap = new Map();
+  if (entities) {
+    Object.keys(entities).forEach((entityName) => {
+      const path = `/${resourcePlural(entityName, devProfile.pluralOverrides || {})}`;
+      const entry = { path, label: entityName };
+      navRoutes.push(entry);
+      navRouteMap.set(entityName, entry);
+    });
+  }
+
   const generatedServiceEntities = new Set();
   if (entities) {
     for (const [entityName, fields] of Object.entries(entities)) {
@@ -250,9 +260,7 @@ function main() {
         console.warn(`⚠️ Tenant isolation enabled but field '${devProfile.tenantFieldName}' not found on entity '${entityName}'.`);
       }
 
-      const pluralPathSeg = resourcePlural(entityName, devProfile.pluralOverrides || {});
-      const routePath = `/${pluralPathSeg}`;
-      navRoutes.push({ path: routePath, label: entityName });
+      const routePath = (navRouteMap.get(entityName)?.path) ?? `/${resourcePlural(entityName, devProfile.pluralOverrides || {})}`;
 
       if (shouldGen('models')) {
         writeFile(path.join(dirs.modelsDir, modelF), generateModelTemplate(entityName, fields, enums), force, `models/${modelF}`);

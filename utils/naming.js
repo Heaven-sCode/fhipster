@@ -53,6 +53,7 @@ function pluralize(word = '', overrides = {}) {
   if (ov) return matchCase(word, ov);
 
   if (IRREGULAR_PLURALS[w]) return matchCase(word, IRREGULAR_PLURALS[w]);
+  if (w.endsWith('ss')) return word + matchCaseSuffix(word, 'es');
   if (w.endsWith('s')) return word;
 
   if (/[bcdfghjklmnpqrstvwxyz]y$/.test(w)) {
@@ -141,9 +142,17 @@ function viewImportPath(entityName) { return `../views/${tableViewFileName(entit
 function resourcePlural(entityName, overrides = {}) {
   const name = String(entityName || '');
   const lower = name.toLowerCase();
-  const ov = lookupOverride(name, overrides) || lookupOverride(lower, overrides);
-  if (ov) return ov.toLowerCase();
-  return pluralize(lower);
+  const override = lookupOverride(name, overrides) || lookupOverride(lower, overrides);
+  if (override) {
+    return toWords(override).map((w) => w.toLowerCase()).join('-');
+  }
+  const words = toWords(name);
+  if (!words.length) {
+    return pluralize(lower);
+  }
+  const last = words.pop();
+  words.push(pluralize(last.toLowerCase()));
+  return words.map((w) => w.toLowerCase()).join('-');
 }
 
 // -------------------- Compatibility exports for the new CLI --------------------
