@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
+import '../core/routes.dart';
 import '../controllers/media_assets_controller.dart';
 import '../models/media_assets_model.dart';
 import '../forms/media_assets_form.dart';
 import '../widgets/common/confirm_dialog.dart';
+
 import '../core/sync/sync_service.dart';
 
 
@@ -20,6 +23,26 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
 
     return AppShell(
       title: _title,
+      navDestinations: const [
+        AppDestination(
+          route: AppRoutes.home,
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppDestination(
+          route: '/properties',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Properties',
+        ),
+        AppDestination(
+          route: '/media-assets',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Media Assets',
+        ),
+      ],
       body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;
@@ -92,7 +115,7 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
         const DataColumn(label: Text('Image')),
         const DataColumn(label: Text('Title')),
         const DataColumn(label: Text('Properties')),
-                              DataColumn(label: Text('Actions')),
+        DataColumn(label: Text('Actions'))
                             ],
                             rows: rows.map((m) => DataRow(
                               cells: [
@@ -196,6 +219,42 @@ class MediaAssetsTableView extends GetView<MediaAssetsController> {
   }
 
   // --------- dialogs ---------
+
+  void _openChildListDialog(BuildContext context, {required String title, Iterable<dynamic>? items}) {
+    final childItems = (items ?? const <dynamic>[]).toList();
+
+    Get.dialog(
+      Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(title),
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Get.back(),
+                ),
+              ],
+            ),
+            body: childItems.isEmpty
+                ? Center(child: Text('No records found'.tr))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    separatorBuilder: (_, __) => const Divider(height: 24),
+                    itemBuilder: (context, index) {
+                      final item = childItems[index];
+                      return SelectableText(item.toString());
+                    },
+                    itemCount: childItems.length,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
 
   void _openFormDialog(BuildContext context, {required String title}) {
     _showFormDialog(context, title: title, body: MediaAssetsForm());
@@ -307,6 +366,32 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
 
 String _formatTemporal(dynamic value) {
   if (value == null) return '';
-  if (value is DateTime) return value.toIso8601String();
   return value.toString();
+}
+
+const Map<String, String> _enumTokenLabels = {};
+
+String _enumLabel(Object? value) {
+  if (value == null) return '';
+
+  if (value is Enum) {
+    final token = value.toString().split('.').last;
+    return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+  }
+  final raw = value.toString();
+  final token = raw.contains('.') ? raw.split('.').last : raw;
+  return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+}
+
+String _humanizeEnumToken(String token) {
+  if (token.isEmpty) return '';
+  final spaced = token
+      .replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2')
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .trim();
+  if (spaced.isEmpty) return '';
+  final parts = spaced.split(RegExp('\\s+'));
+  return parts
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
+      .join(' ');
 }

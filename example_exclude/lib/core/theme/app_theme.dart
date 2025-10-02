@@ -66,7 +66,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: brightness == Brightness.light
             ? Colors.white
             : const Color(0xFF111827),

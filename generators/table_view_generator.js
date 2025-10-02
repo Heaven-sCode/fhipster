@@ -79,23 +79,23 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   childRelInfos.forEach((info) => { childRelMap[info.fieldName] = info; });
 
   const childShowInfos = (fields || [])
-    .filter((f) => {
-      if (!f || !f.isRelationship) return false;
-      const kind = String(f.relationshipType || '').toLowerCase();
-      return kind === 'onetomany' || kind === 'manytomany';
-    })
+    .filter((f) => f && f.isRelationship)
     .map((f) => {
       if (!f.targetEntity) return null;
+      const relationshipType = String(f.relationshipType || '').toLowerCase();
       return {
         fieldName: f.name,
         childEntity: f.targetEntity,
         label: labelize(f.name),
+        relationshipType,
       };
     })
-    .filter(Boolean);
+    .filter((info) => info && ['onetomany', 'manytomany', 'onetoone'].includes(info.relationshipType));
 
   const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
   const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
+  const childServiceImports = Array.from(new Set(childRelInfos.map((info) => `import '../services/${toFileName(info.childEntity)}_service.dart';`))).join('\n');
+  const childModelImports = Array.from(new Set(childRelInfos.map((info) => `import '../models/${toFileName(info.childEntity)}_model.dart';`))).join('\n');
 
   // Build DataColumn list (headers)
   const fieldColumnEntries = fields.map(f => {
@@ -105,7 +105,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 
   const childColumnEntries = childShowInfos.map((info) => {
     const label = info.label.replace(/'/g, "\\'");
-    return `        DataColumn(label: Text('Show ${label}'))`;
+    return `        const DataColumn(label: Text('Show ${label}'))`;
   }).join(',\n');
 
   // Build cell renderers per field
@@ -132,11 +132,18 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 
   const childRelationCells = childShowInfos.map((info) => {
     const childLabel = info.label.replace(/'/g, "\\'");
-    const quickInfo = childRelMap[info.fieldName];
+    const dialogTitle = labelize(info.childEntity || info.label).replace(/'/g, "\\'");
+    const quickInfo = info.relationshipType === 'onetomany' ? childRelMap[info.fieldName] : null;
+    const itemsExpr = info.relationshipType === 'onetoone'
+      ? `(m.${info.fieldName} == null ? const [] : [m.${info.fieldName}])`
+      : `(m.${info.fieldName} ?? const [])`;
+    const viewHandler = quickInfo
+      ? `_handleShow${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m)`
+      : `_openChildListDialog(context, title: '${dialogTitle}'.tr, items: ${itemsExpr})`;
     const addButton = quickInfo
-      ? `              FilledButton.icon(\n                onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n                icon: const Icon(Icons.add),\n                label: Text('Add ${labelize(quickInfo.childEntity).replace(/'/g, "\\'")}'.tr),\n              ),`
+      ? `              FilledButton.icon(\n                onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n                icon: const Icon(Icons.add),\n                label: Text('Add ${labelize(quickInfo.childEntity).replace(/'/g, "\\'")}'.tr),\n              ),\n`
       : '';
-    return `          DataCell(Wrap(\n            spacing: 8,\n            runSpacing: 8,\n            children: [\n              FilledButton.icon(\n                onPressed: () => _openChildListDialog(\n                  context,\n                  title: '${childLabel}'.tr,\n                  items: m.${info.fieldName},\n                ),\n                icon: const Icon(Icons.visibility),\n                label: Text('Show ${childLabel}'.tr),\n              ),\n${addButton ? `${addButton}\n` : ''}            ],\n          ))`;
+    return `          DataCell(Wrap(\n            spacing: 8,\n            runSpacing: 8,\n            children: [\n              FilledButton.icon(\n                onPressed: () => ${viewHandler},\n                icon: const Icon(Icons.visibility),\n                label: Text('Show ${childLabel}'.tr),\n              ),\n${addButton}            ],\n          ))`;
   });
 
   const allDataCells = fieldCells.concat(childRelationCells);
@@ -202,6 +209,29 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     ? `const Map<String, String> _enumTokenLabels = {\n${Array.from(new Set(enumTokenLabelEntries)).join('\n')}\n};`
     : 'const Map<String, String> _enumTokenLabels = {};';
 
+ const childFetchHelpers = childRelInfos.map((info) => {
+    const childLabel = labelize(info.childEntity).replace(/'/g, "\\'");
+    return `  Future<List<${info.childEntity}Model>> _fetch${info.childEntity}${cap(info.fieldName)}(${modelClass} parent) async {
+    final id = parent.id;
+    if (id == null) return parent.${info.fieldName} ?? const [];
+    if (!Get.isRegistered<${info.childEntity}Service>()) Get.put(${info.childEntity}Service());
+    final svc = Get.find<${info.childEntity}Service>();
+    try {
+      return await svc.list(filters: {'${info.childField}Id': {'equals': id}});
+    } catch (e) {
+      if (!Get.isSnackbarOpen) {
+        Get.snackbar('Error'.tr, 'Failed to load ${childLabel}'.tr);
+      }
+      return parent.${info.fieldName} ?? const [];
+    }
+  }
+
+  Future<void> _handleShow${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
+    final fetched = await _fetch${info.childEntity}${cap(info.fieldName)}(parent);
+    await _openChildListDialog(context, title: '${childLabel}'.tr, items: fetched);
+  }`;
+  }).join('\n\n');
+
   const columnEntries = [fieldColumnEntries, childColumnEntries, "        DataColumn(label: Text('Actions'))"].filter(Boolean).join(',\n');
 
   return `import 'package:flutter/material.dart';
@@ -215,7 +245,7 @@ import '../models/${toFileName(entityName)}_model.dart';
 import '../forms/${toFileName(entityName)}_form.dart';
 import '../widgets/common/confirm_dialog.dart';
 ${enumImports ? enumImports + '\n' : ''}
-${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${syncImport}
+${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${childServiceImports ? childServiceImports + '\n' : ''}${childModelImports ? childModelImports + '\n' : ''}${syncImport}
 
 class ${className} extends GetView<${controllerClass}> {
   const ${className}({super.key});
@@ -401,14 +431,14 @@ ${allDataCells.join(',\n')},
 
   // --------- dialogs ---------
 
-  void _openChildListDialog(BuildContext context, {required String title, Iterable<dynamic>? items}) {
+  Future<void> _openChildListDialog(BuildContext context, {required String title, Iterable<dynamic>? items}) async {
     final childItems = (items ?? const <dynamic>[]).toList();
 
-    Get.dialog(
+    await Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+          constraints: const BoxConstraints(maxWidth: 920, maxHeight: 720),
           child: Scaffold(
             appBar: AppBar(
               title: Text(title),
@@ -422,14 +452,16 @@ ${allDataCells.join(',\n')},
             ),
             body: childItems.isEmpty
                 ? Center(child: Text('No records found'.tr))
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    separatorBuilder: (_, __) => const Divider(height: 24),
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    itemCount: childItems.length,
                     itemBuilder: (context, index) {
                       final item = childItems[index];
-                      return SelectableText(item.toString());
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _childItemCard(item),
+                      );
                     },
-                    itemCount: childItems.length,
                   ),
           ),
         ),
@@ -504,8 +536,9 @@ ${detailRows}
       ),
     );
   }
+${childFetchHelpers ? '\n' + childFetchHelpers + '\n' : ''}
 ${childRelInfos.map(info => `
-  void _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) {
+  Future<void> _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
     if ((parent.id ?? null) == null) {
       Get.snackbar(
         'Error'.tr,
@@ -518,7 +551,9 @@ ${childRelInfos.map(info => `
       );
       return;
     }
-    if (!Get.isRegistered<${info.childController}>()) Get.put(${info.childController}());
+    if (!Get.isRegistered<${info.childController}>()) {
+      Get.put(${info.childController}(), permanent: true);
+    }
     final ctrl = Get.find<${info.childController}>();
     ctrl.beginCreate();
     final existingIndex = ctrl.${info.childField}Options.indexWhere((e) => e.id == parent.id);
@@ -528,7 +563,8 @@ ${childRelInfos.map(info => `
     } else {
       ctrl.${info.childField}.value = ctrl.${info.childField}Options[existingIndex];
     }
-    Get.back();
+    Get.back<void>();
+    await Future.delayed(Duration.zero);
     _openChildFormDialog(
       context,
       title: 'Create ${info.childEntity}'.tr,
@@ -538,12 +574,126 @@ ${childRelInfos.map(info => `
 `).join('\n')}
 }
 
+Widget _childItemCard(dynamic item) {
+  if (item == null) {
+    return const SizedBox.shrink();
+  }
+
+  Map<String, dynamic>? data;
+  if (item is Map<String, dynamic>) {
+    data = Map<String, dynamic>.from(item);
+  } else {
+    try {
+      final dynamic json = (item as dynamic).toJson?.call();
+      if (json is Map<String, dynamic>) {
+        data = Map<String, dynamic>.from(json);
+      }
+    } catch (_) {
+      data = null;
+    }
+  }
+
+  data ??= {'Value': item};
+
+  final entries = data.entries
+      .where((entry) {
+        final value = entry.value;
+        if (value == null) return false;
+        if (value is Map || value is Iterable) return false;
+        final str = value is DateTime ? _formatTemporal(value) : value.toString();
+        return str.isNotEmpty;
+      })
+      .take(8)
+      .toList();
+
+  if (entries.isEmpty) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: SelectableText(item.toString()),
+      ),
+    );
+  }
+
+  final theme = Theme.of(Get.context!);
+  final cardColor = theme.colorScheme.surfaceVariant.withOpacity(theme.brightness == Brightness.dark ? 0.25 : 0.7);
+  final titleEntry = entries.firstWhere(
+    (e) {
+      final key = e.key.toLowerCase();
+      return key == 'title' || key == 'name' || key == 'displayname';
+    },
+    orElse: () => MapEntry('', ''),
+  );
+
+  return Card(
+    elevation: 3,
+    color: cardColor,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (titleEntry.key.isNotEmpty) ...[
+            Text(
+              titleEntry.value is DateTime ? _formatTemporal(titleEntry.value) : titleEntry.value.toString(),
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 16),
+          ],
+          ...entries.where((entry) => entry.key != titleEntry.key).map<Widget>((entry) {
+            final value = entry.value is DateTime ? _formatTemporal(entry.value) : entry.value.toString();
+            final sanitized = entry.key
+                .replaceAll(RegExp(r'[\\$#]+'), ' ')
+                .replaceAll(RegExp(r'_+'), ' ')
+                .replaceAll(RegExp(r'\\d+'), ' ')
+                .replaceAll(RegExp(r'\\s+'), ' ')
+                .trim();
+            final label = sanitized.isEmpty
+                ? _humanizeEnumToken(entry.key)
+                : _humanizeEnumToken(sanitized);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 160,
+                    child: Text(
+                      (label.isEmpty ? entry.key : label),
+                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: SelectableText(
+                      value,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    ),
+  );
+}
+
 // Simple key-value row for view dialog
 Widget _kv(String key, String value) {
   return _kvWithAction(key, value);
 }
 
-Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallback? onAction}) {
+Widget _kvWithAction(
+  String key,
+  String value, {
+  String? actionLabel,
+  VoidCallback? onAction,
+  String? secondaryActionLabel,
+  VoidCallback? onSecondaryAction,
+}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Row(
@@ -563,6 +713,14 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
             onPressed: onAction,
             icon: const Icon(Icons.add),
             label: Text(actionLabel),
+          ),
+        ],
+        if (secondaryActionLabel != null && onSecondaryAction != null) ...[
+          const SizedBox(width: 16),
+          FilledButton.icon(
+            onPressed: onSecondaryAction,
+            icon: const Icon(Icons.visibility),
+            label: Text(secondaryActionLabel),
           ),
         ],
       ],
@@ -589,7 +747,7 @@ ${usesTemporalField
     final local = parsed.isUtc ? parsed.toLocal() : parsed;
     final hasTime = local.hour != 0 || local.minute != 0 || local.second != 0 || local.millisecond != 0 || local.microsecond != 0;
     final locale = Get.locale?.toString();
-    final formatter = hasTime ? DateFormat.yMMMd(locale).add_jm() : DateFormat.yMMMd(locale);
+    final formatter = hasTime ? DateFormat.yMMMEd(locale).add_jm() : DateFormat.yMMMEd(locale);
     return formatter.format(local);
   }
   return value.toString();

@@ -74,6 +74,8 @@ class AuthService extends GetxService {
     return false;
   }
 
+  Future<bool> refreshNow() async => await tryRefreshToken();
+
   Future<String?> getAccessToken({bool forceFresh = false}) async {
     await _ensureLoaded();
     if (forceFresh && !await tryRefreshToken()) {

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
+import '../core/routes.dart';
 import '../controllers/properties_controller.dart';
 import '../models/properties_model.dart';
 import '../forms/properties_form.dart';
 import '../widgets/common/confirm_dialog.dart';
+
 import '../controllers/media_assets_controller.dart';
 import '../forms/media_assets_form.dart';
 import '../core/sync/sync_service.dart';
@@ -22,6 +25,26 @@ class PropertiesTableView extends GetView<PropertiesController> {
 
     return AppShell(
       title: _title,
+      navDestinations: const [
+        AppDestination(
+          route: AppRoutes.home,
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppDestination(
+          route: '/properties',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Properties',
+        ),
+        AppDestination(
+          route: '/media-assets',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Media Assets',
+        ),
+      ],
       body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;
@@ -96,7 +119,8 @@ class PropertiesTableView extends GetView<PropertiesController> {
         const DataColumn(label: Text('Value')),
         const DataColumn(label: Text('Facilities')),
         const DataColumn(label: Text('Media Assets')),
-                              DataColumn(label: Text('Actions')),
+        const DataColumn(label: Text('Show Media Assets')),
+        DataColumn(label: Text('Actions'))
                             ],
                             rows: rows.map((m) => DataRow(
                               cells: [
@@ -106,6 +130,26 @@ class PropertiesTableView extends GetView<PropertiesController> {
           DataCell(Text(m.value == null ? '' : m.value.toString())),
           DataCell(Text(m.facilities == null ? '' : m.facilities.toString())),
           DataCell(Text(((m.mediaAssets?.length) ?? 0).toString())),
+          DataCell(Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: () => _openChildListDialog(
+                  context,
+                  title: 'Media Assets'.tr,
+                  items: (m.mediaAssets ?? const []),
+                ),
+                icon: const Icon(Icons.visibility),
+                label: Text('Show Media Assets'.tr),
+              ),
+              FilledButton.icon(
+                onPressed: () => _quickCreateMediaAssetsMediaAssets(context, m),
+                icon: const Icon(Icons.add),
+                label: Text('Add Media Assets'.tr),
+              ),
+            ],
+          )),
                                 DataCell(Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -203,6 +247,42 @@ class PropertiesTableView extends GetView<PropertiesController> {
 
   // --------- dialogs ---------
 
+  void _openChildListDialog(BuildContext context, {required String title, Iterable<dynamic>? items}) {
+    final childItems = (items ?? const <dynamic>[]).toList();
+
+    Get.dialog(
+      Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(title),
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Get.back(),
+                ),
+              ],
+            ),
+            body: childItems.isEmpty
+                ? Center(child: Text('No records found'.tr))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    separatorBuilder: (_, __) => const Divider(height: 24),
+                    itemBuilder: (context, index) {
+                      final item = childItems[index];
+                      return SelectableText(item.toString());
+                    },
+                    itemCount: childItems.length,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _openFormDialog(BuildContext context, {required String title}) {
     _showFormDialog(context, title: title, body: PropertiesForm());
   }
@@ -269,7 +349,7 @@ class PropertiesTableView extends GetView<PropertiesController> {
               _kv('Area', m.area?.toString() ?? ''),
               _kv('Value', m.value?.toString() ?? ''),
               _kv('Facilities', m.facilities?.toString() ?? ''),
-              _kvWithAction('Media Assets', ((m.mediaAssets?.length) ?? 0).toString(), actionLabel: 'Create MediaAssets'.tr, onAction: () => _quickCreateMediaAssetsMediaAssets(context, m)),
+              _kvWithAction('Media Assets', ((m.mediaAssets?.length) ?? 0).toString(), actionLabel: 'Create MediaAssets'.tr, onAction: () => _quickCreateMediaAssetsMediaAssets(context, m), secondaryActionLabel: 'View MediaAssets'.tr, onSecondaryAction: () => _openChildListDialog(context, title: 'MediaAssets'.tr, items: m.mediaAssets)),
                 ],
               ),
             ),
@@ -346,6 +426,32 @@ Widget _kvWithAction(String key, String value, {String? actionLabel, VoidCallbac
 
 String _formatTemporal(dynamic value) {
   if (value == null) return '';
-  if (value is DateTime) return value.toIso8601String();
   return value.toString();
+}
+
+const Map<String, String> _enumTokenLabels = {};
+
+String _enumLabel(Object? value) {
+  if (value == null) return '';
+
+  if (value is Enum) {
+    final token = value.toString().split('.').last;
+    return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+  }
+  final raw = value.toString();
+  final token = raw.contains('.') ? raw.split('.').last : raw;
+  return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+}
+
+String _humanizeEnumToken(String token) {
+  if (token.isEmpty) return '';
+  final spaced = token
+      .replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2')
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .trim();
+  if (spaced.isEmpty) return '';
+  final parts = spaced.split(RegExp('\\s+'));
+  return parts
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
+      .join(' ');
 }

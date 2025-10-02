@@ -110,11 +110,27 @@ function parseRelationships(text) {
   // relationship OneToOne   { User to Profile{user} }
   // relationship ManyToMany { Tag{posts} to Post{tags} }
   const rels = [];
-  const blockRe = /relationship\s+([A-Za-z]+)\s*\{\s*([^}]*)\}/g;
+  const blockRe = /relationship\s+([A-Za-z]+)\s*\{/g;
   let bm;
   while ((bm = blockRe.exec(text)) !== null) {
     const type = bm[1].trim();
-    const body = bm[2] || '';
+    let bodyStart = blockRe.lastIndex;
+    let i = bodyStart;
+    let depth = 1;
+    while (i < text.length && depth > 0) {
+      const ch = text[i];
+      if (ch === '{') depth += 1;
+      else if (ch === '}') depth -= 1;
+      i += 1;
+    }
+    if (depth !== 0) {
+      // malformed block; skip to avoid infinite loop
+      break;
+    }
+    const bodyEnd = i - 1;
+    const body = text.slice(bodyStart, bodyEnd);
+    blockRe.lastIndex = i;
+
     const lines = body.split(/\r?\n|,/).map(l => l.trim()).filter(Boolean);
 
     lines.forEach(line => {

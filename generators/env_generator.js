@@ -247,37 +247,28 @@ class Env {
   }
 
   static String pluralFor(String name) {
-    final lower = name.toLowerCase();
+    if (name.isEmpty) return '';
+
     String? override;
     _active.pluralOverrides.forEach((k, v) {
-      if (k.toLowerCase() == lower && v.isNotEmpty) {
-        override = v;
+      if (k.toLowerCase() == name.toLowerCase() && v.trim().isNotEmpty) {
+        override = v.trim();
       }
     });
     if (override != null) {
-      return override!.toLowerCase();
+      return override!.replaceAll(RegExp(r'^/+|/+$'), '').toLowerCase();
     }
-    if (_irregularPlurals.containsKey(lower)) {
-      return _irregularPlurals[lower]!;
-    }
-    if (lower.endsWith('ss')) {
-      return ${dartStringLiteral(DOLLAR + '{lower}es')};
-    }
-    if (lower.endsWith('s')) return lower;
-    if (_consonantY.hasMatch(lower)) {
-      return lower.substring(0, lower.length - 1) + 'ies';
-    }
-    if (_sibilant.hasMatch(lower)) {
-      return ${dartStringLiteral(DOLLAR + '{lower}es')};
-    }
-    if (_fEnding.hasMatch(lower)) {
-      if (lower.endsWith('fe')) return lower.substring(0, lower.length - 2) + 'ves';
-      return lower.substring(0, lower.length - 1) + 'ves';
-    }
-    if (lower.endsWith('o') && !_vowelO.hasMatch(lower)) {
-      return ${dartStringLiteral(DOLLAR + '{lower}es')};
-    }
-    return ${dartStringLiteral(DOLLAR + '{lower}s')};
+
+    final slug = _toKebabCase(name);
+    if (slug.isEmpty) return slug;
+
+    final parts = slug.split('-');
+    if (parts.isEmpty) return slug;
+
+    final last = parts.removeLast();
+    final pluralLast = _pluralizeToken(last);
+    parts.add(pluralLast);
+    return parts.join('-');
   }
 
   static String entityBasePath(String plural, {String? microserviceOverride}) {
@@ -306,6 +297,41 @@ class Env {
 
   static String _trimSlashes(String input) {
     return input.replaceAll(RegExp(r'^/+|/+$'), '');
+  }
+
+  static String _toKebabCase(String input) {
+    final replaced = input
+        .replaceAll(RegExp(r'[\s_]+'), '-')
+        .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+        .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2')
+        .replaceAll(RegExp('-{2,}'), '-');
+    return replaced.toLowerCase();
+  }
+
+  static String _pluralizeToken(String token) {
+    final lower = token.toLowerCase();
+    if (lower.isEmpty) return lower;
+    if (_irregularPlurals.containsKey(lower)) {
+      return _irregularPlurals[lower]!;
+    }
+    if (lower.endsWith('ss')) {
+      return lower + 'es';
+    }
+    if (lower.endsWith('s')) return lower;
+    if (_consonantY.hasMatch(lower)) {
+      return lower.substring(0, lower.length - 1) + 'ies';
+    }
+    if (_sibilant.hasMatch(lower)) {
+      return lower + 'es';
+    }
+    if (_fEnding.hasMatch(lower)) {
+      if (lower.endsWith('fe')) return lower.substring(0, lower.length - 2) + 'ves';
+      return lower.substring(0, lower.length - 1) + 'ves';
+    }
+    if (lower.endsWith('o') && !_vowelO.hasMatch(lower)) {
+      return lower + 'es';
+    }
+    return lower + 's';
   }
 
   static const Map<String, String> _irregularPlurals = {

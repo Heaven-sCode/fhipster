@@ -79,6 +79,7 @@ function main() {
     .option('enableSQLite', { type: 'boolean', describe: 'Generate offline SQLite cache (disable for web builds)' })
     .option('only', { type: 'string', describe: 'Only generate these entities (comma-separated)' })
     .option('skipParts', { type: 'string', describe: 'Skip parts: models,services,controllers,forms,views,enums,core,widgets,routes,main' })
+    .option('debugRelationships', { type: 'string', describe: 'Comma-separated entity names to print relationship metadata for ("*" for all)' })
     .option('force', { alias: 'f', type: 'boolean', default: false, describe: 'Overwrite existing files' })
     .help('h').alias('h', 'help')
     .version().alias('v', 'version')
@@ -110,6 +111,7 @@ function main() {
   // Partial gen flags
   const onlyEntities = parseCsv(argv.only || yamlConfig.only);
   const skipParts = new Set(parseCsv(argv.skipParts || yamlConfig.skipParts));
+  const debugRelationships = parseCsv(argv.debugRelationships);
   const shouldGen = (part) => !skipParts.has(part);
   const entityAllowed = (name) =>
     !onlyEntities.length || onlyEntities.map(s => s.toLowerCase()).includes(String(name).toLowerCase());
@@ -126,6 +128,30 @@ function main() {
   // Parse JDL
   const jdlContent = fs.readFileSync(jdlFilePath, 'utf8');
   const { entities, enums, pluralOverrides: fromJdlPlural = {} } = parseJdl(jdlContent);
+
+  if (debugRelationships.length) {
+    const targets = debugRelationships.includes('*') ? Object.keys(entities || {}) : debugRelationships.map((n) => n.trim()).filter(Boolean);
+    console.log('\n🔍 Relationship metadata preview:');
+    targets.forEach((entityName) => {
+      const fields = entities?.[entityName];
+      if (!fields) {
+        console.log(`  • ${entityName}: not found in parsed entities`);
+        return;
+      }
+      const rels = fields.filter((f) => f && f.isRelationship);
+      if (!rels.length) {
+        console.log(`  • ${entityName}: no relationships detected`);
+        return;
+      }
+      console.log(`  • ${entityName}:`);
+      rels.forEach((rel) => {
+        const type = String(rel.relationshipType || '').toLowerCase() || 'unknown';
+        console.log(`      - ${rel.name} ➜ ${rel.targetEntity} (${type})`);
+      });
+    });
+    console.log('');
+  }
+
   devProfile.pluralOverrides = { ...(fromJdlPlural || {}), ...(devProfile.pluralOverrides || {}) };
   prodProfile.pluralOverrides = { ...(fromJdlPlural || {}), ...(prodProfile.pluralOverrides || {}) };
 

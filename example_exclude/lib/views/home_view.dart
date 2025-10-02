@@ -3,27 +3,49 @@ import 'package:get/get.dart';
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
 import '../core/auth/auth_service.dart';
+import '../core/routes.dart';
 
 class HomeView extends StatelessWidget {
   const HomeView({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final auth = Get.find<AuthService>();
+    final auth = Get.isRegistered<AuthService>() ? Get.find<AuthService>() : null;
     final env = Env.get();
 
     return AppShell(
       title: 'Home',
+      navDestinations: const [
+        AppDestination(
+          route: AppRoutes.home,
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppDestination(
+          route: '/properties',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Properties',
+        ),
+        AppDestination(
+          route: '/media-assets',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Media Assets',
+        ),
+      ],
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Greeting
-            Obx(() {
-              final name = _displayName(auth) ?? _username(auth) ?? 'User';
-              return Text('Welcome, ' + name, style: Theme.of(context).textTheme.headlineSmall);
-            }),
+            if (auth != null) Obx(() {
+              final name = auth.displayName ?? auth.username.value ?? 'User';
+              return Text('Welcome, $name', style: Theme.of(context).textTheme.headlineSmall);
+            }) else
+              Text('Welcome', style: Theme.of(context).textTheme.headlineSmall),
 
             const SizedBox(height: 16),
 
@@ -35,15 +57,15 @@ class HomeView extends StatelessWidget {
                 _HomeCard(
                   icon: Icons.account_circle_outlined,
                   title: 'Account',
-                  child: Obx(() {
-                    final roles = auth.authorities.toList();
+                  child: auth != null ? Obx(() {
+                    final roles = auth.authorities;
                     final at = auth.accessTokenExpiry;
                     final rt = auth.refreshTokenExpiry;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _kv('Username', _username(auth) ?? '-'),
-                        _kv('Display name', _displayName(auth) ?? '-'),
+                        _kv('Username', auth.username.value),
+                        _kv('Display name', auth.displayName ?? '-'),
                         _kv('Roles', roles.isEmpty ? '-' : roles.join(', ')),
                         _kv('Access token exp', at != null ? at.toLocal().toString() : '-'),
                         _kv('Refresh token exp', rt != null ? rt.toLocal().toString() : '-'),
@@ -57,7 +79,7 @@ class HomeView extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             OutlinedButton.icon(
-                              onPressed: () => auth.tryRefreshToken(),
+                              onPressed: () => auth.refreshNow(),
                               icon: const Icon(Icons.refresh),
                               label: const Text('Refresh token'),
                             ),
@@ -65,7 +87,7 @@ class HomeView extends StatelessWidget {
                         ),
                       ],
                     );
-                  }),
+                  }) : const Text('Not authenticated'),
                 ),
 
                 _HomeCard(
@@ -147,7 +169,8 @@ class _HomeCard extends StatelessWidget {
   }
 }
 
-Widget _kv(String k, String v) {
+Widget _kv(String k, Object? v) {
+  final value = _stringifyValue(v);
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 2),
     child: Row(
@@ -155,12 +178,14 @@ Widget _kv(String k, String v) {
       children: [
         SizedBox(width: 160, child: Text(k, style: Get.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600))),
         const SizedBox(width: 8),
-        Expanded(child: SelectableText(v)),
+        Expanded(child: SelectableText(value)),
       ],
     ),
   );
 }
 
-String? _username(AuthService auth) => auth.username.value;
-
-String? _displayName(AuthService auth) => auth.displayName;
+String _stringifyValue(Object? value) {
+  if (value == null) return '-';
+  if (value is String && value.trim().isEmpty) return '-';
+  return value.toString();
+}

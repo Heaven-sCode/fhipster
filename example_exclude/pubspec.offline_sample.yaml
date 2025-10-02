@@ -16,10 +16,6 @@ dependencies:
   sqflite: ^2.3.0
   path: ^1.8.3
   sqflite_common_ffi_web: ^0.4.0
-  responsive_grid: ^2.4.4
-  crypto: ^3.0.6 
-  flutter_secure_storage: ^9.2.4
-
 
 dev_dependencies:
   flutter_test:

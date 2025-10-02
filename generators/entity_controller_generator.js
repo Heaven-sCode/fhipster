@@ -44,6 +44,11 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     return t === 'onetomany' || t === 'manytomany';
   });
 
+  const multiRelMeta = multiRels.map((r) => ({
+    ...r,
+    stateName: `selected${cap(r.name)}`,
+  }));
+
   // Collect imports for related models & services
   const relModelImports = Array.from(new Set(rels.map(r => `import '../models/${toFileName(r.targetEntity)}_model.dart';`))).join('\n');
   const relServiceImports = Array.from(new Set(rels.map(r => `import '../services/${toFileName(r.targetEntity)}_service.dart';`))).join('\n');
@@ -77,11 +82,12 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     ].join('\n');
   }).join('\n');
 
-  const multiRelDecls = multiRels.map(r => {
+  const multiRelDecls = multiRelMeta.map(r => {
     const tModel = `${r.targetEntity}Model`;
     const fname = r.name;
+    const stateName = r.stateName;
     return [
-      `  final RxList<${tModel}> ${fname} = <${tModel}>[].obs;`,
+      `  final RxList<${tModel}> ${stateName} = <${tModel}>[].obs;`,
       `  final RxList<${tModel}> ${fname}Options = <${tModel}>[].obs;`,
       `  final RxBool ${fname}Loading = false.obs;`,
     ].join('\n');
@@ -101,7 +107,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   }).join('\n');
 
   const fillRelSingles = singleRels.map(r => `    ${r.name}.value = m?.${r.name};`).join('\n');
-  const fillRelMultis = multiRels.map(r => `    ${r.name}.assignAll(m?.${r.name} ?? const []);`).join('\n');
+  const fillRelMultis = multiRelMeta.map(r => `    ${r.stateName}.assignAll(m?.${r.name} ?? const []);`).join('\n');
 
   // build model from form
   const buildModelLines = fields.map(f => {
@@ -111,7 +117,9 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     if (f.isRelationship) {
       const t = (f.relationshipType || '').toLowerCase();
       if (t === 'onetomany' || t === 'manytomany') {
-        return `      ${n}: ${n}.toList(),`;
+        const relMeta = multiRelMeta.find((meta) => meta.name === n);
+        const stateName = relMeta ? relMeta.stateName : n;
+        return `      ${n}: ${stateName}.toList(),`;
       }
       return `      ${n}: ${n}.value,`;
     }
@@ -145,7 +153,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     return `    ${n}Ctrl.clear();`;
   }).join('\n');
   const clearRelSingles = singleRels.map(r => `    ${r.name}.value = null;`).join('\n');
-  const clearRelMultis = multiRels.map(r => `    ${r.name}.clear();`).join('\n');
+  const clearRelMultis = multiRelMeta.map(r => `    ${r.stateName}.clear();`).join('\n');
 
   // relation option loaders
   const singleLoaders = singleRels.map(r => {
@@ -161,8 +169,9 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
       final res = await svc.listPaged(page: 0, size: 1000, sort: ['id,asc']);
       ${fname}Options.assignAll(res.items);
       final current = ${fname}.value;
-      if (current?.id != null) {
-        final idx = ${fname}Options.indexWhere((e) => e.id == current.id);
+      final currentId = current?.id;
+      if (currentId != null) {
+        final idx = ${fname}Options.indexWhere((e) => e.id == currentId);
         if (idx != -1) {
           ${fname}.value = ${fname}Options[idx];
         }
@@ -175,7 +184,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   }`;
   }).join('\n');
 
-  const multiLoaders = multiRels.map(r => {
+  const multiLoaders = multiRelMeta.map(r => {
     const service = `${r.targetEntity}Service`;
     const fname = r.name;
     return `
@@ -248,7 +257,7 @@ ${multiRelDecls}
 
     // Eagerly load relation options (optional; comment out for lazy)
 ${singleRels.map(r => `    load${cap(r.name)}Options();`).join('\n')}
-${multiRels.map(r => `    load${cap(r.name)}Options();`).join('\n')}
+${multiRelMeta.map(r => `    load${cap(r.name)}Options();`).join('\n')}
 
     loadPage(0);
 ${syncInitCall}
@@ -317,6 +326,12 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
   void beginEdit(${modelClass} m) {
     _editing.value = m;
     _fillForm(m);
+  }
+
+  void duplicateFrom(${modelClass} source) {
+    _editing.value = null;
+    _clearForm();
+    _fillForm(source.copyWith(id: null));
   }
 
   Future<void> submitForm() async {

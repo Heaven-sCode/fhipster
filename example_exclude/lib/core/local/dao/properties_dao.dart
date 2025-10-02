@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../local_database.dart';
-import '../../models/properties_model.dart';
+import '../../../models/properties_model.dart';
 
 /// Basic DAO for Properties. Persists serialized payloads locally for offline caching.
 class PropertiesDao {

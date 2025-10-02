@@ -77,7 +77,7 @@ class AppRoutes {
       middlewares: [AuthMiddleware(requireAuth: true)],
     ),
     GetPage(
-      name: '/mediaassets',
+      name: '/media-assets',
       page: () => const MediaAssetsTableView(),
       binding: BindingsBuilder(() {
         _ensureCore();

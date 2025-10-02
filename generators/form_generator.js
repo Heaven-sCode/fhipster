@@ -209,7 +209,7 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
             Obx(() {
               final loading = controller.${n}Loading.value;
               final options = controller.${n}Options;
-              final selected = controller.${n};
+              final selected = controller.selected${cap(n)};
               if (loading) {
                 return const Center(
                   child: Padding(
