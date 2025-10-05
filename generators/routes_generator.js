@@ -11,7 +11,7 @@
 //     includeAuthGuards: true,
 //   }), force, 'core/routes.dart');
 
-function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true } = {}) {
+function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true, includeColumnSettings = false } = {}) {
   // Dynamic imports for entities
   const entityViewImports = entityRoutes
     .map(r => `import '../views/${r.viewFile}';`)
@@ -19,6 +19,9 @@ function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true } 
   const entityControllerImports = entityRoutes
     .map(r => `import '../controllers/${r.controllerFile}';`)
     .join('\n');
+  const columnSettingsImports = includeColumnSettings
+    ? "import '../views/settings/column_settings_view.dart';\nimport 'preferences/column_preferences.dart';\n"
+    : '';
 
   // Build GetPages for entities
   const entityPages = entityRoutes.map(r => {
@@ -43,6 +46,18 @@ function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true } 
     ),`;
   }).join('\n');
 
+  const columnSettingsRoute = includeColumnSettings
+    ? `    GetPage(
+      name: columnSettings,
+      page: () => const ColumnSettingsView(),
+      binding: BindingsBuilder(() {
+        _ensureCore();
+        if (!Get.isRegistered<ColumnPreferencesService>()) Get.put(ColumnPreferencesService(), permanent: true);
+      }),
+      ${includeAuthGuards ? 'middlewares: [AuthMiddleware(requireAuth: true)],' : ''}
+    ),\n`
+    : '';
+
   return `import 'package:get/get.dart';
 
 import 'api_client.dart';
@@ -61,6 +76,7 @@ import '../controllers/login_controller.dart';
 
 ${entityViewImports}
 ${entityControllerImports}
+${columnSettingsImports}
 
 class AppRoutes {
   static const splash = '/';
@@ -68,6 +84,7 @@ class AppRoutes {
   static const home = '/home';
   static const unauthorized = '/unauthorized';
   static const forbidden = '/forbidden';
+${includeColumnSettings ? "  static const columnSettings = '/settings/columns';\n" : ''}
 
   static final pages = <GetPage>[
     // Splash (bootstraps auth & decides where to go)
@@ -110,6 +127,7 @@ class AppRoutes {
       page: () => const ForbiddenView(),
     ),
 
+${columnSettingsRoute}
 ${entityPages}
   ];
 }

@@ -37,6 +37,9 @@ const { generateTableViewTemplate } = require('../generators/table_view_generato
 const { generateTableWidgetsTemplates } = require('../generators/table_widgets_generator');
 const { generateFHipsterInputFieldTemplate } = require('../generators/fhipster_input_field_generator');
 const { generateLocalDatabaseTemplate, generateDaoTemplate } = require('../generators/sqlite_generator');
+const { generateColumnPreferencesTemplate } = require('../generators/column_preferences_generator');
+const { generateColumnSettingsViewTemplate } = require('../generators/column_settings_view_generator');
+const { generateColumnPreferencesRegistryTemplate } = require('../generators/column_preferences_registry_generator');
 
 const { generateLoginControllerTemplate } = require('../generators/login_controller_generator');
 const { generateLoginViewTemplate } = require('../generators/login_view_generator');
@@ -196,6 +199,12 @@ function main() {
       force,
       'core/theme/app_theme.dart'
     );
+    writeFile(
+      path.join(dirs.corePreferencesDir, 'column_preferences.dart'),
+      generateColumnPreferencesTemplate(),
+      force,
+      'core/preferences/column_preferences.dart'
+    );
 
     writeFile(
       path.join(dirs.coreConnectivityDir, 'connectivity_service.dart'),
@@ -257,6 +266,7 @@ function main() {
   const entityRoutes = [];
   const navRoutes = [];
   const navRouteMap = new Map();
+  const entityNamesForRegistry = [];
   if (entities) {
     Object.keys(entities).forEach((entityName) => {
       const path = `/${resourcePlural(entityName, devProfile.pluralOverrides || {})}`;
@@ -266,10 +276,20 @@ function main() {
     });
   }
 
+  navRoutes.push({
+    path: '/settings/columns',
+    label: 'Column Settings',
+    icon: 'Icons.view_column_outlined',
+    selectedIcon: 'Icons.view_column',
+  });
+
   const generatedServiceEntities = new Set();
   if (entities) {
     for (const [entityName, fields] of Object.entries(entities)) {
       if (!entityAllowed(entityName)) continue;
+      if (!entityNamesForRegistry.includes(entityName)) {
+        entityNamesForRegistry.push(entityName);
+      }
 
       const modelF = modelFileName(entityName);
       const serviceF = serviceFileName(entityName);
@@ -354,6 +374,18 @@ function main() {
       writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(navRoutes), force, 'views/home_view.dart');
       writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
       writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
+      writeFile(
+        path.join(dirs.viewsSettingsDir, 'column_settings_view.dart'),
+        generateColumnSettingsViewTemplate(navRoutes),
+        force,
+        'views/settings/column_settings_view.dart'
+      );
+      writeFile(
+        path.join(dirs.viewsSettingsDir, 'column_preferences_registry.dart'),
+        generateColumnPreferencesRegistryTemplate(entityNamesForRegistry),
+        force,
+        'views/settings/column_preferences_registry.dart'
+      );
     }
   }
 
@@ -361,7 +393,7 @@ function main() {
   if (shouldGen('routes')) {
     writeFile(
       path.join(dirs.coreDir, 'routes.dart'),
-      generateRoutesTemplate({ entityRoutes, includeAuthGuards }),
+      generateRoutesTemplate({ entityRoutes, includeAuthGuards, includeColumnSettings: shouldGen('views') }),
       force,
       'core/routes.dart'
     );
@@ -577,6 +609,7 @@ function resolveDirs(rootOut) {
     coreAuthDir: path.join(libDir, 'core', 'auth'),
     coreEnvDir: path.join(libDir, 'core', 'env'),
     coreThemeDir: path.join(libDir, 'core', 'theme'),
+    corePreferencesDir: path.join(libDir, 'core', 'preferences'),
     coreConnectivityDir: path.join(libDir, 'core', 'connectivity'),
     coreSyncDir: path.join(libDir, 'core', 'sync'),
     modelsDir: path.join(libDir, 'models'),
@@ -584,6 +617,7 @@ function resolveDirs(rootOut) {
     controllersDir: path.join(libDir, 'controllers'),
     formsDir: path.join(libDir, 'forms'),
     viewsDir: path.join(libDir, 'views'),
+    viewsSettingsDir: path.join(libDir, 'views', 'settings'),
     widgetsDir: path.join(libDir, 'widgets'),
     widgetsTableDir: path.join(libDir, 'widgets', 'table'),
     widgetsCommonDir: path.join(libDir, 'widgets', 'common'),
@@ -600,11 +634,13 @@ function ensureDirs(dirs) {
     dirs.coreAuthDir,
     dirs.coreEnvDir,
     dirs.coreThemeDir,
+    dirs.corePreferencesDir,
     dirs.modelsDir,
     dirs.servicesDir,
     dirs.controllersDir,
     dirs.formsDir,
     dirs.viewsDir,
+    dirs.viewsSettingsDir,
     dirs.widgetsDir,
     dirs.widgetsTableDir,
     dirs.widgetsCommonDir,

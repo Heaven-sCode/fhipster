@@ -14,6 +14,8 @@ import 'core/api_client.dart';
 import 'core/auth/auth_service.dart';
 import 'core/routes.dart';
 import 'core/theme/app_theme.dart';
+import 'core/preferences/column_preferences.dart';
+import 'views/settings/column_preferences_registry.dart';
 ${connectivityImport}${sqliteImports}${syncImport}
 
 // Select runtime profile at launch:
@@ -36,6 +38,9 @@ ${sqliteInit}
   if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
   if (!Get.isRegistered<ConnectivityService>()) Get.put(ConnectivityService(), permanent: true);
+  final columnPrefs = Get.put(ColumnPreferencesService(), permanent: true);
+  await columnPrefs.init();
+  registerAllColumnPreferences(columnPrefs);
 ${syncRegistration}
   runApp(const FHipsterApp());
 }

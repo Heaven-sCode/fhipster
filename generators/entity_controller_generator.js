@@ -223,6 +223,8 @@ class ${className} extends GetxController {
   // ===== List state =====
   final RxList<${modelClass}> items = <${modelClass}>[].obs;
   final RxBool isLoading = false.obs;
+  final RxBool isSaving = false.obs;
+  static bool _searchSupported = true;
 
   final RxInt page = 0.obs;
   final RxInt size = 0.obs;
@@ -277,16 +279,33 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
       isLoading.value = true;
       page.value = p;
 
-      if ((query.value).trim().isNotEmpty) {
-        final res = await _service.search(
-          query: query.value.trim(),
-          page: page.value,
-          size: size.value,
-          sort: Env.get().defaultSearchSort,
-        );
-        items.assignAll(res.items);
-        total.value = res.total ?? res.items.length;
-      } else {
+      var loadedViaSearch = false;
+      final trimmedQuery = (query.value).trim();
+      if (_searchSupported && trimmedQuery.isNotEmpty) {
+        try {
+          final wildcardQuery = _wildcardQuery(trimmedQuery);
+          final res = await _service.search(
+            query: wildcardQuery,
+            page: page.value,
+            size: size.value,
+            sort: sort.toList(),
+          );
+          items.assignAll(res.items);
+          total.value = res.total ?? res.items.length;
+          loadedViaSearch = true;
+        } catch (e) {
+          final message = e.toString().toLowerCase();
+          final isNotFound = message.contains('http 404') || message.contains('not found');
+          if (!isNotFound) {
+            rethrow;
+          }
+          // mark search as unsupported so we stop hitting the missing endpoint
+          _searchSupported = false;
+          // fall through to standard list load when search endpoint is unavailable
+        }
+      }
+
+      if (!loadedViaSearch) {
         final res = await _service.listPaged(
           page: page.value,
           size: size.value,
@@ -316,6 +335,14 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
     loadPage(0);
   }
 
+  String _wildcardQuery(String raw) {
+    final term = raw.trim();
+    if (term.isEmpty) return term;
+    final normalized = term.replaceAll('*', '');
+    if (normalized.isEmpty) return '*';
+    return '*\$normalized*';
+  }
+
   // ===== Form flow =====
 
   void beginCreate() {
@@ -334,9 +361,10 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
     _fillForm(source.copyWith(id: null));
   }
 
-  Future<void> submitForm() async {
+  Future<bool> submitForm() async {
     final model = _buildModelFromForm();
     try {
+      isSaving.value = true;
       if (_editing.value?.id == null) {
         final created = await _service.create(model);
         _editing.value = created;
@@ -347,18 +375,25 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
         _info('${entityName} updated');
       }
       await loadPage(page.value);
+      return true;
     } catch (e) {
       _error('Failed to save ${entityName}', e);
+      return false;
+    } finally {
+      isSaving.value = false;
     }
   }
 
   Future<void> deleteOne(${modelClass} m) async {
     try {
+      isSaving.value = true;
       await _service.delete(m.id);
       _info('${entityName} deleted');
       await loadPage(page.value);
     } catch (e) {
       _error('Failed to delete ${entityName}', e);
+    } finally {
+      isSaving.value = false;
     }
   }
 

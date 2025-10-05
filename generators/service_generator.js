@@ -176,17 +176,17 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     int? size,
     List<String>? sort,
   }) async {
-    final res = await _api.get(
-      _searchBase,
-      query: {
-        'query': query,
-        ..._buildQuery(
-          page: page,
-          size: size,
-          sort: sort ?? Env.get().defaultSearchSort,
-        ),
-      },
-    );
+    final params = <String>[];
+    params.add('query=\$query');
+    if (page != null) params.add('page=\$page');
+    if (size != null) params.add('size=\$size');
+    final sorts = sort ?? Env.get().defaultSearchSort;
+    if (sorts.isNotEmpty) {
+      params.addAll(sorts.map((s) => 'sort=\$s'));
+    }
+    final url = params.isEmpty ? _searchBase : '\${_searchBase}?\${params.join('&')}';
+
+    final res = await _api.get(url);
     if (!res.isOk) _throwHttp(res);
 
     final body = res.body;

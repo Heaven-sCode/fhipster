@@ -79,7 +79,6 @@ class ApiClient extends GetConnect {
   Future<Map<String, String>> _headers({bool forceFresh = false}) async {
     final h = <String, String>{
       'Accept': 'application/json',
-      'Content-Type': 'application/json',
     };
     final token = await _auth.getAccessToken(forceFresh: forceFresh);
     if (token != null && token.isNotEmpty) {

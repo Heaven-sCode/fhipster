@@ -69,6 +69,7 @@ class _AppShellState extends State<AppShell> {
 
   bool _railVisible = true;
   late List<AppDestination> _navItems;
+  int? _lastSelectedIndex;
 
   @override
   void initState() {
@@ -94,6 +95,10 @@ class _AppShellState extends State<AppShell> {
         ? widget.navDestinations
         : AppShell._navCache;
     if (_navItems.isEmpty && _railVisible) _railVisible = false;
+    final cached = _lastSelectedIndex;
+    if (cached != null && cached >= _navItems.length) {
+      _lastSelectedIndex = _navItems.isEmpty ? null : 0;
+    }
   }
 
   @override
@@ -201,9 +206,19 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex(String currentRoute, List<AppDestination> items) {
     if (items.isEmpty) return -1;
     final exact = items.indexWhere((d) => d.route == currentRoute);
-    if (exact >= 0) return exact;
+    if (exact >= 0) {
+      _lastSelectedIndex = exact;
+      return exact;
+    }
     for (int i = 0; i < items.length; i++) {
-      if (currentRoute.startsWith(items[i].route)) return i;
+      if (currentRoute.startsWith(items[i].route)) {
+        _lastSelectedIndex = i;
+        return i;
+      }
+    }
+    final cached = _lastSelectedIndex;
+    if (cached != null && cached >= 0 && cached < items.length) {
+      return cached;
     }
     return 0;
   }

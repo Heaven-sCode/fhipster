@@ -66,11 +66,12 @@ function parseEnums(text) {
 
 function parseEntities(text) {
   const entities = {};
-  const re = /entity\s+([A-Za-z_]\w*)\s*\{\s*([^}]*)\}/g;
+  const re = /((?:@[A-Za-z_][\w]*(?:\([^)]*\))?\s*)*)entity\s+([A-Za-z_]\w*)\s*\{\s*([^}]*)\}/g;
   let m;
   while ((m = re.exec(text)) !== null) {
-    const name = m[1].trim();
-    const body = m[2] || '';
+    const annotationsRaw = (m[1] || '').trim();
+    const name = m[2].trim();
+    const body = m[3] || '';
     const fields = [];
 
     body
@@ -100,8 +101,33 @@ function parseEntities(text) {
       });
 
     entities[name] = fields;
+
+    if (/@EnableAudit\b/i.test(annotationsRaw)) {
+      addAuditFields(fields);
+    }
   }
   return entities;
+}
+
+function addAuditFields(fields) {
+  const ensureField = (name, type) => {
+    const exists = fields.some(f => f.name.toLowerCase() === name.toLowerCase());
+    if (exists) return;
+    fields.push({
+      name,
+      type,
+      required: false,
+      nullable: true,
+      isRelationship: false,
+      isAudit: true,
+      readOnly: true,
+    });
+  };
+
+  ensureField('createdBy', 'String');
+  ensureField('createdDate', 'Instant');
+  ensureField('lastModifiedBy', 'String');
+  ensureField('lastModifiedDate', 'Instant');
 }
 
 function parseRelationships(text) {

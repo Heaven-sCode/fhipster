@@ -36,6 +36,9 @@ function enumTokenLabel(token) {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
 }
+function escapeDartString(text) {
+  return String(text || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
 const { toFileName } = require('../utils/naming');
 const { navDestinationsString } = require('./helpers/nav_destinations');
 const { jdlToDartType } = require('../parser/type_mapping');
@@ -78,6 +81,9 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const childRelMap = {};
   childRelInfos.forEach((info) => { childRelMap[info.fieldName] = info; });
 
+  // Helper list (per relationship) for injecting parent option into child controller caches
+  const ensureHelperInfos = childRelInfos;
+
   const childShowInfos = (fields || [])
     .filter((f) => f && f.isRelationship)
     .map((f) => {
@@ -98,41 +104,60 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const childModelImports = Array.from(new Set(childRelInfos.map((info) => `import '../models/${toFileName(info.childEntity)}_model.dart';`))).join('\n');
 
   // Build DataColumn list (headers)
-  const fieldColumnEntries = fields.map(f => {
-    const label = labelize(f.name);
-    return `        const DataColumn(label: Text('${label}'))`;
-  }).join(',\n');
-
-  const childColumnEntries = childShowInfos.map((info) => {
-    const label = info.label.replace(/'/g, "\\'");
-    return `        const DataColumn(label: Text('Show ${label}'))`;
-  }).join(',\n');
-
-  // Build cell renderers per field
-  const cellExprs = fieldTypes.map((info) => {
+  const displayFieldInfos = fieldTypes.filter((info) => {
     const f = info.field;
-    const n = f.name;
     if (f.isRelationship) {
       const kind = (f.relationshipType || '').toLowerCase();
       if (kind === 'onetomany' || kind === 'manytomany') {
-        return `Text(((m.${n}?.length) ?? 0).toString())`;
+        return false;
       }
-      return `Text(m.${n}?.id?.toString() ?? '')`;
     }
-    if (info.isEnum) {
-      return `Text(_enumLabel(m.${n}))`;
-    }
-    if (info.dartType === 'DateTime') {
-      return `Text(_formatTemporal(m.${n}))`;
-    }
-    return `Text(m.${n} == null ? '' : m.${n}.toString())`;
+    return true;
   });
 
-  const fieldCells = cellExprs.map(expr => `          DataCell(${expr})`);
+  const fieldDefinitionEntries = displayFieldInfos.map((info) => {
+    const label = escapeDartString(labelize(info.field.name));
+    const isAudit = info.field.isAudit ? 'true' : 'false';
+    return `    TableColumnDefinition(field: '${info.field.name}', label: '${label}', isAudit: ${isAudit})`;
+  }).join(',\n');
 
-  const childRelationCells = childShowInfos.map((info) => {
-    const childLabel = info.label.replace(/'/g, "\\'");
-    const dialogTitle = labelize(info.childEntity || info.label).replace(/'/g, "\\'");
+  const childDefinitionEntries = childShowInfos.map((info) => {
+    const label = escapeDartString(info.label);
+    return `    TableColumnDefinition(field: '${info.fieldName}Actions', label: 'Show ${label}')`;
+  }).join(',\n');
+
+  const definitionEntries = [fieldDefinitionEntries, childDefinitionEntries]
+    .filter((s) => s && s.length > 0)
+    .join(',\n');
+
+  const columnDefinitionList = definitionEntries;
+
+  const fieldSpecEntries = displayFieldInfos.map((info) => {
+    const f = info.field;
+    const n = f.name;
+    const isAudit = f.isAudit ? 'true' : 'false';
+    const label = escapeDartString(labelize(n));
+    let cellExpr;
+    if (f.isRelationship) {
+      const kind = (f.relationshipType || '').toLowerCase();
+      if (kind === 'onetomany' || kind === 'manytomany') {
+        cellExpr = `Text(((m.${n}?.length) ?? 0).toString())`;
+      } else {
+        cellExpr = `Text(m.${n}?.id?.toString() ?? '')`;
+      }
+    } else if (info.isEnum) {
+      cellExpr = `Text(_enumLabel(m.${n}))`;
+    } else if (info.dartType === 'DateTime') {
+      cellExpr = `Text(_formatTemporal(m.${n}))`;
+    } else {
+      cellExpr = `Text(m.${n} == null ? '' : m.${n}.toString())`;
+    }
+    return `    _ColumnSpec<${modelClass}>(\n      field: '${n}',\n      label: '${label}',\n      isAudit: ${isAudit},\n      cellBuilder: (context, m) => DataCell(${cellExpr}),\n    )`;
+  }).join(',\n');
+
+  const childSpecEntries = childShowInfos.map((info) => {
+    const childLabel = escapeDartString(info.label);
+    const dialogTitle = escapeDartString(labelize(info.childEntity || info.label));
     const quickInfo = info.relationshipType === 'onetomany' ? childRelMap[info.fieldName] : null;
     const itemsExpr = info.relationshipType === 'onetoone'
       ? `(m.${info.fieldName} == null ? const [] : [m.${info.fieldName}])`
@@ -141,14 +166,15 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
       ? `_handleShow${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m)`
       : `_openChildListDialog(context, title: '${dialogTitle}'.tr, items: ${itemsExpr})`;
     const addButton = quickInfo
-      ? `              FilledButton.icon(\n                onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n                icon: const Icon(Icons.add),\n                label: Text('Add ${labelize(quickInfo.childEntity).replace(/'/g, "\\'")}'.tr),\n              ),\n`
+      ? `          const SizedBox(width: 8),\n          FilledButton.icon(\n            onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n            icon: const Icon(Icons.add),\n            label: Text('Add ${escapeDartString(labelize(quickInfo.childEntity))}'.tr),\n          ),\n`
       : '';
-    return `          DataCell(Wrap(\n            spacing: 8,\n            runSpacing: 8,\n            children: [\n              FilledButton.icon(\n                onPressed: () => ${viewHandler},\n                icon: const Icon(Icons.visibility),\n                label: Text('Show ${childLabel}'.tr),\n              ),\n${addButton}            ],\n          ))`;
-  });
+    return `    _ColumnSpec<${modelClass}>(\n      field: '${info.fieldName}Actions',\n      label: 'Show ${childLabel}',\n      cellBuilder: (context, m) => DataCell(Row(\n        mainAxisSize: MainAxisSize.min,\n        children: [\n          FilledButton.icon(\n            onPressed: () => ${viewHandler},\n            icon: const Icon(Icons.visibility),\n            label: Text('Show ${childLabel}'.tr),\n          ),\n${addButton}        ],\n      )),\n    )`;
+  }).join(',\n');
 
-  const allDataCells = fieldCells.concat(childRelationCells);
+  const columnSpecEntries = [fieldSpecEntries, childSpecEntries]
+    .filter((s) => s && s.length > 0)
+    .join(',\n');
 
-  // Details rows for "View" dialog
   const detailRows = fieldTypes.map((info) => {
     const f = info.field;
     const label = labelize(f.name);
@@ -159,7 +185,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
         valueExpr = `((m.${f.name}?.length) ?? 0).toString()`;
         const childInfo = childRelMap[f.name];
         if (childInfo) {
-          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m), secondaryActionLabel: 'View ${childInfo.childEntity}'.tr, onSecondaryAction: () => _openChildListDialog(context, title: '${childInfo.childEntity}'.tr, items: m.${f.name})),`;
+          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m), secondaryActionLabel: 'View ${childInfo.childEntity}'.tr, onSecondaryAction: () => _openChildListDialog(\n                context,\n                title: '${childInfo.childEntity}'.tr,\n                items: m.${f.name},\n                onRefresh: () => _fetch${childInfo.childEntity}${cap(childInfo.fieldName)}(m),\n                onEdit: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _editChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n                onDelete: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _deleteChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n              )),`;
         }
       } else {
         valueExpr = `m.${f.name}?.id?.toString() ?? ''`;
@@ -228,11 +254,26 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
 
   Future<void> _handleShow${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
     final fetched = await _fetch${info.childEntity}${cap(info.fieldName)}(parent);
-    await _openChildListDialog(context, title: '${childLabel}'.tr, items: fetched);
+    await _openChildListDialog(
+      context,
+      title: '${childLabel}'.tr,
+      items: fetched,
+      onRefresh: () => _fetch${info.childEntity}${cap(info.fieldName)}(parent),
+      onEdit: (item) async {
+        if (item is ${info.childEntity}Model) {
+          return await _editChild${info.childEntity}${cap(info.fieldName)}(context, parent, item);
+        }
+        return false;
+      },
+      onDelete: (item) async {
+        if (item is ${info.childEntity}Model) {
+          return await _deleteChild${info.childEntity}${cap(info.fieldName)}(context, parent, item);
+        }
+        return false;
+      },
+    );
   }`;
   }).join('\n\n');
-
-  const columnEntries = [fieldColumnEntries, childColumnEntries, "        DataColumn(label: Text('Actions'))"].filter(Boolean).join(',\n');
 
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -240,6 +281,7 @@ ${intlImport}
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
 import '../core/routes.dart';
+import '../core/preferences/column_preferences.dart';
 import '../controllers/${toFileName(entityName)}_controller.dart';
 import '../models/${toFileName(entityName)}_model.dart';
 import '../forms/${toFileName(entityName)}_form.dart';
@@ -250,11 +292,50 @@ ${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports
 class ${className} extends GetView<${controllerClass}> {
   const ${className}({super.key});
 
+  static const String _tableKey = '${toFileName(entityName)}';
+  static const String _tableLabel = '${escapeDartString(labelize(entityName))}';
+  static final List<TableColumnDefinition> _columnDefinitions = [
+${columnDefinitionList}
+  ];
+  static bool _columnsRegistered = false;
+
+  List<_ColumnSpec<${modelClass}>> _buildAllColumnSpecs() {
+    return [
+${columnSpecEntries}
+    ];
+  }
+
+  _ColumnSpec<${modelClass}>? _findSpec(String field, List<_ColumnSpec<${modelClass}>> specs) {
+    for (final spec in specs) {
+      if (spec.field == field) return spec;
+    }
+    return null;
+  }
+
+  static void registerColumns(ColumnPreferencesService prefs, {bool force = false}) {
+    if (!force && _columnsRegistered) return;
+    prefs.register(_tableKey, _tableLabel, _columnDefinitions);
+    _columnsRegistered = true;
+  }
+
   String get _title => '${entityName}';
 
   @override
   Widget build(BuildContext context) {
     final env = Env.get();
+    final prefs = Get.find<ColumnPreferencesService>();
+    if (!_columnsRegistered) {
+      if (prefs.registry.containsKey(_tableKey)) {
+        _columnsRegistered = true;
+      } else {
+        final binding = WidgetsBinding.instance;
+        if (binding != null) {
+          binding.addPostFrameCallback((_) => registerColumns(prefs));
+        } else {
+          registerColumns(prefs);
+        }
+      }
+    }
 
     return AppShell(
       title: _title,
@@ -324,56 +405,73 @@ ${navItems}
                         scrollDirection: Axis.horizontal,
                         child: Obx(() {
                           final rows = controller.items;
+                          prefs.hidden[_tableKey];
+                          var visibleDefs = prefs.visibleDefinitions(_tableKey);
+                          if (visibleDefs.isEmpty) {
+                            visibleDefs = _columnDefinitions;
+                          }
+                          final allSpecs = _buildAllColumnSpecs();
+                          var specs = visibleDefs
+                              .map((def) => _findSpec(def.field, allSpecs))
+                              .whereType<_ColumnSpec<${modelClass}>>()
+                              .toList();
+                          if (specs.isEmpty) {
+                            specs = List<_ColumnSpec<${modelClass}>>.from(allSpecs);
+                          }
+                          final dataColumns = specs
+                              .map((spec) => DataColumn(label: Text(spec.label)))
+                              .toList();
+                          dataColumns.add(DataColumn(label: Text('Actions'.tr)));
+
                           return DataTable(
                             headingRowHeight: 42,
                             dataRowMinHeight: 40,
                             dataRowMaxHeight: 56,
-                            columns: const [
-${columnEntries}
-                            ],
-                            rows: rows.map((m) => DataRow(
-                              cells: [
-${allDataCells.join(',\n')},
-                                DataCell(Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      tooltip: 'View'.tr,
-                                      icon: const Icon(Icons.visibility),
-                                      onPressed: () => _openViewDialog(context, m),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Edit'.tr,
-                                      icon: const Icon(Icons.edit),
-                                      onPressed: () {
-                                        controller.beginEdit(m);
-                                        _openFormDialog(context, title: 'Edit ${entityName}');
-                                      },
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Delete'.tr,
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () async {
-                                        final ok = await showConfirmDialog(
-                                          context,
-                                          title: 'Delete',
-                                          message: 'Are you sure?'.tr,
-                                        );
-                                        if (ok == true) {
-                                          await controller.deleteOne(m);
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                )),
-                              ],
-                            )).toList(),
+                            columns: dataColumns,
+                            rows: rows.map((m) {
+                              final cells = specs
+                                  .map((spec) => spec.cellBuilder(context, m))
+                                  .toList();
+                              cells.add(DataCell(Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'View'.tr,
+                                    icon: const Icon(Icons.visibility),
+                                    onPressed: () => _openViewDialog(context, m),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Edit'.tr,
+                                    icon: const Icon(Icons.edit),
+                                    onPressed: () {
+                                      controller.beginEdit(m);
+                                      _openFormDialog(context, title: 'Edit ${entityName}');
+                                    },
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Delete'.tr,
+                                    icon: const Icon(Icons.delete_outline),
+                                    onPressed: () async {
+                                      final ok = await showConfirmDialog(
+                                        context,
+                                        title: 'Delete',
+                                        message: 'Are you sure?'.tr,
+                                      );
+                                      if (ok == true) {
+                                        await controller.deleteOne(m);
+                                      }
+                                    },
+                                  ),
+                                ],
+                              )));
+                              return DataRow(cells: cells);
+                            }).toList(),
                           );
                         }),
                       ),
                     ),
 
-                    // Pagination bar
+// Pagination bar
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
@@ -431,54 +529,96 @@ ${allDataCells.join(',\n')},
 
   // --------- dialogs ---------
 
-  Future<void> _openChildListDialog(BuildContext context, {required String title, Iterable<dynamic>? items}) async {
-    final childItems = (items ?? const <dynamic>[]).toList();
+  Future<void> _openChildListDialog(
+    BuildContext context, {
+    required String title,
+    Iterable<dynamic>? items,
+    Future<List<dynamic>> Function()? onRefresh,
+    Future<bool> Function(dynamic item)? onEdit,
+    Future<bool> Function(dynamic item)? onDelete,
+  }) async {
+    var childItems = (items ?? const <dynamic>[]).toList();
+
+    Future<void> refreshItems(StateSetter setState) async {
+      if (onRefresh == null) return;
+      final updated = await onRefresh();
+      if (updated != null) {
+        setState(() {
+          childItems = List<dynamic>.from(updated);
+        });
+      }
+    }
 
     await Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 920, maxHeight: 720),
-          child: Scaffold(
-            appBar: AppBar(
-              title: Text(title),
-              automaticallyImplyLeading: false,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Get.back(),
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              final hasItems = childItems.isNotEmpty;
+              return Scaffold(
+                appBar: AppBar(
+                  title: Text(title),
+                  automaticallyImplyLeading: false,
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Get.back<void>(),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            body: childItems.isEmpty
-                ? Center(child: Text('No records found'.tr))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    itemCount: childItems.length,
-                    itemBuilder: (context, index) {
-                      final item = childItems[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _childItemCard(item),
-                      );
-                    },
-                  ),
+                body: hasItems
+                    ? ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        itemCount: childItems.length,
+                        itemBuilder: (context, index) {
+                          final item = childItems[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: _childItemCard(
+                              item,
+                              onEdit: onEdit == null
+                                  ? null
+                                  : (value) async {
+                                      final changed = await onEdit(value);
+                                      if (changed == true) {
+                                        await refreshItems(setState);
+                                      }
+                                      return changed ?? false;
+                                    },
+                              onDelete: onDelete == null
+                                  ? null
+                                  : (value) async {
+                                      final changed = await onDelete(value);
+                                      if (changed == true) {
+                                        await refreshItems(setState);
+                                      }
+                                      return changed ?? false;
+                                    },
+                            ),
+                          );
+                        },
+                      )
+                    : Center(child: Text('No records found'.tr)),
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  void _openFormDialog(BuildContext context, {required String title}) {
-    _showFormDialog(context, title: title, body: ${entityName}Form());
+  Future<bool?> _openFormDialog(BuildContext context, {required String title}) {
+    return _showFormDialog(context, title: title, body: ${entityName}Form());
   }
 
-  void _openChildFormDialog(BuildContext context, {required String title, required Widget body}) {
-    _showFormDialog(context, title: title, body: body);
+  Future<bool?> _openChildFormDialog(BuildContext context, {required String title, required Widget body}) {
+    return _showFormDialog(context, title: title, body: body);
   }
 
-  void _showFormDialog(BuildContext context, {required String title, required Widget body}) {
-    Get.dialog(
+  Future<bool?> _showFormDialog(BuildContext context, {required String title, required Widget body}) {
+    return Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
         child: ConstrainedBox(
@@ -490,7 +630,7 @@ ${allDataCells.join(',\n')},
               actions: [
                 IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: () => Get.back(),
+                  onPressed: () => Get.back<void>(),
                 )
               ],
             ),
@@ -537,8 +677,59 @@ ${detailRows}
     );
   }
 ${childFetchHelpers ? '\n' + childFetchHelpers + '\n' : ''}
+${ensureHelperInfos.map(info => `
+  ${modelClass} _ensure${info.childEntity}${cap(info.fieldName)}ParentOption(${info.childController} ctrl, ${modelClass} parent) {
+    final index = ctrl.${info.childField}Options.indexWhere((e) => e.id == parent.id);
+    if (index == -1) {
+      ctrl.${info.childField}Options.add(parent);
+      return parent;
+    }
+    return ctrl.${info.childField}Options[index];
+  }
+`).join('\n')}
+
 ${childRelInfos.map(info => `
-  Future<void> _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
+  Future<bool> _editChild${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent, ${info.childEntity}Model child) async {
+    if (!Get.isRegistered<${info.childController}>()) {
+      Get.put(${info.childController}(), permanent: true);
+    }
+    final ctrl = Get.find<${info.childController}>();
+    final parentOption = _ensure${info.childEntity}${cap(info.fieldName)}ParentOption(ctrl, parent);
+    ctrl.beginEdit(child);
+    ctrl.${info.childField}.value = parentOption;
+    final saved = await _openChildFormDialog(
+      context,
+      title: 'Edit ${info.childEntity}'.tr,
+      body: ${info.childForm}(),
+    );
+    if (saved == true) {
+      await ctrl.loadPage(ctrl.page.value);
+      await controller.loadPage(controller.page.value);
+      Get.snackbar('Success'.tr, 'Record updated'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> _deleteChild${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent, ${info.childEntity}Model child) async {
+    if ((child.id ?? null) == null) return false;
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Delete',
+      message: 'Are you sure?'.tr,
+    );
+    if (ok != true) return false;
+    if (!Get.isRegistered<${info.childController}>()) {
+      Get.put(${info.childController}(), permanent: true);
+    }
+    final ctrl = Get.find<${info.childController}>();
+    await ctrl.deleteOne(child);
+    await ctrl.loadPage(ctrl.page.value);
+    await controller.loadPage(controller.page.value);
+    return true;
+  }
+
+  Future<bool> _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
     if ((parent.id ?? null) == null) {
       Get.snackbar(
         'Error'.tr,
@@ -549,32 +740,50 @@ ${childRelInfos.map(info => `
         snackPosition: SnackPosition.BOTTOM,
         duration: const Duration(seconds: 3),
       );
-      return;
+      return false;
     }
     if (!Get.isRegistered<${info.childController}>()) {
       Get.put(${info.childController}(), permanent: true);
     }
     final ctrl = Get.find<${info.childController}>();
     ctrl.beginCreate();
-    final existingIndex = ctrl.${info.childField}Options.indexWhere((e) => e.id == parent.id);
-    if (existingIndex == -1) {
-      ctrl.${info.childField}Options.add(parent);
-      ctrl.${info.childField}.value = parent;
-    } else {
-      ctrl.${info.childField}.value = ctrl.${info.childField}Options[existingIndex];
-    }
-    Get.back<void>();
-    await Future.delayed(Duration.zero);
-    _openChildFormDialog(
+    final parentOption = _ensure${info.childEntity}${cap(info.fieldName)}ParentOption(ctrl, parent);
+    ctrl.${info.childField}.value = parentOption;
+    final saved = await _openChildFormDialog(
       context,
       title: 'Create ${info.childEntity}'.tr,
       body: ${info.childForm}(),
     );
+    if (saved == true) {
+      await ctrl.loadPage(ctrl.page.value);
+      await controller.loadPage(controller.page.value);
+      Get.snackbar('Success'.tr, 'Record created'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
+      return true;
+    }
+    return false;
   }
 `).join('\n')}
 }
 
-Widget _childItemCard(dynamic item) {
+String _humanizeKeyLabel(String key) {
+  if (key.isEmpty) return '';
+  if (key.toLowerCase() == 'id') return 'ID';
+  final cleaned = key
+      .replaceAll(RegExp(r'[._]+'), ' ')
+      .replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2')
+      .trim();
+  if (cleaned.isEmpty) return _humanizeEnumToken(key);
+  return cleaned
+      .split(RegExp(r'\s+'))
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
+      .join(' ');
+}
+
+Widget _childItemCard(
+  dynamic item, {
+  Future<bool> Function(dynamic item)? onEdit,
+  Future<bool> Function(dynamic item)? onDelete,
+}) {
   if (item == null) {
     return const SizedBox.shrink();
   }
@@ -643,15 +852,7 @@ Widget _childItemCard(dynamic item) {
           ],
           ...entries.where((entry) => entry.key != titleEntry.key).map<Widget>((entry) {
             final value = entry.value is DateTime ? _formatTemporal(entry.value) : entry.value.toString();
-            final sanitized = entry.key
-                .replaceAll(RegExp(r'[\\$#]+'), ' ')
-                .replaceAll(RegExp(r'_+'), ' ')
-                .replaceAll(RegExp(r'\\d+'), ' ')
-                .replaceAll(RegExp(r'\\s+'), ' ')
-                .trim();
-            final label = sanitized.isEmpty
-                ? _humanizeEnumToken(entry.key)
-                : _humanizeEnumToken(sanitized);
+            final label = _humanizeKeyLabel(entry.key);
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
@@ -675,6 +876,26 @@ Widget _childItemCard(dynamic item) {
               ),
             );
           }),
+          if (onEdit != null || onDelete != null) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              children: [
+                if (onEdit != null)
+                  FilledButton.tonalIcon(
+                    onPressed: () async => await onEdit(item),
+                    icon: const Icon(Icons.edit),
+                    label: Text('Edit'.tr),
+                  ),
+                if (onDelete != null)
+                  OutlinedButton.icon(
+                    onPressed: () async => await onDelete(item),
+                    icon: const Icon(Icons.delete_outline),
+                    label: Text('Delete'.tr),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     ),
@@ -770,6 +991,26 @@ ${enumTypesUsed.map(enumName => `  if (value is ${enumName}) {
   final raw = value.toString();
   final token = raw.contains('.') ? raw.split('.').last : raw;
   return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+}
+
+class _ColumnSpec<T> {
+  final String field;
+  final String label;
+  final bool isAudit;
+  final DataCell Function(BuildContext context, T model) cellBuilder;
+
+  _ColumnSpec({
+    required this.field,
+    required this.label,
+    required this.cellBuilder,
+    this.isAudit = false,
+  });
+
+  TableColumnDefinition get definition => TableColumnDefinition(
+        field: field,
+        label: label,
+        isAudit: isAudit,
+      );
 }
 
 String _humanizeEnumToken(String token) {

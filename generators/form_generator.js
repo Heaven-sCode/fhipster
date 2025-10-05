@@ -70,7 +70,11 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
     .join('\n');
 
   // Prepare widget builders for each field (skip 'id' and tenant field when isolation active)
-  const formFields = fields.filter(f => f.name !== 'id' && !(tenantEnabled && f.name === tenantFieldName));
+  const formFields = fields.filter(f =>
+    f.name !== 'id' &&
+    !(tenantEnabled && f.name === tenantFieldName) &&
+    !f.isAudit
+  );
 
   const gridCols = formFields.map(f => {
     const n = f.name;
@@ -204,63 +208,19 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
             })`;
         return wrapInGridCol(widgetExpr);
       } else {
-        // Multi relation: FilterChips with options
+        // Multi relation: creation dialog should not allow selecting child records
         widgetExpr = `
-            Obx(() {
-              final loading = controller.${n}Loading.value;
-              final options = controller.${n}Options;
-              final selected = controller.selected${cap(n)};
-              if (loading) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Text('${label}'.tr, style: Theme.of(Get.context!).textTheme.bodyMedium),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: options.map((e) {
-                      final isSel = selected.any((x) => x.id == e.id);
-                      return FilterChip(
-                        label: Text((e.id ?? '').toString()),
-                        selected: isSel,
-                        onSelected: (v) {
-                          if (v && !isSel) {
-                            selected.add(e);
-                          } else if (!v && isSel) {
-                            selected.removeWhere((x) => x.id == e.id);
-                          }
-                        },
-                      );
-                    }).toList(),
-                  ),
-                  ${f.required ? `if (selected.isEmpty) Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      'Please select at least one ${label.toLowerCase()}'.tr,
-                      style: TextStyle(color: Theme.of(Get.context!).colorScheme.error, fontSize: 12),
-                    ),
-                  ),` : ''}
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: IconButton(
-                      tooltip: 'Reload'.tr,
-                      icon: const Icon(Icons.refresh),
-                      onPressed: () => controller.load${cap(n)}Options(),
-                    ),
-                  ),
-                ],
-              );
-            })`;
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${label}'.tr, style: Theme.of(Get.context!).textTheme.bodyMedium),
+                const SizedBox(height: 4),
+                Text(
+                  'Linked records are managed from the ${label.toLowerCase()} view.',
+                  style: Theme.of(Get.context!).textTheme.bodySmall,
+                ),
+              ],
+            )`;
         return wrapInGridCol(widgetExpr);
       }
     }
@@ -306,25 +266,39 @@ ${gridCols}
               ],
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                FilledButton.icon(
-                  onPressed: () {
-                    if (_formKey.currentState?.validate() ?? false) {
-                      controller.submitForm();
-                    }
-                  },
-                  icon: const Icon(Icons.save),
-                  label: Text('Save'.tr),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => controller.beginCreate(), // reset as "new"
-                  icon: const Icon(Icons.refresh),
-                  label: Text('Reset'.tr),
-                ),
-              ],
-            ),
+            Obx(() {
+              final saving = controller.isSaving.value;
+              return Row(
+                children: [
+                  FilledButton.icon(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (_formKey.currentState?.validate() ?? false) {
+                              final ok = await controller.submitForm();
+                              if (ok && (Get.isDialogOpen ?? false)) {
+                                Get.back<bool>(result: true);
+                              }
+                            }
+                          },
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save),
+                    label: Text(saving ? 'Saving'.tr : 'Save'.tr),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: saving ? null : () => controller.beginCreate(),
+                    icon: const Icon(Icons.refresh),
+                    label: Text('Reset'.tr),
+                  ),
+                ],
+              );
+            }),
           ],
         ),
       ),

@@ -284,15 +284,12 @@ class Env {
   }
 
   static String searchBasePath(String plural, {String? microserviceOverride}) {
-    final cfg = get();
-    final segment = _trimSlashes(plural.isEmpty ? '' : plural);
-    if (cfg.useGateway) {
-      final svc = _trimSlashes(microserviceOverride ?? cfg.gatewayServiceName ?? '');
-      if (svc.isNotEmpty) {
-        return '/services/$svc/api/_search/$segment';
-      }
+    final base = entityBasePath(plural, microserviceOverride: microserviceOverride);
+    final normalized = _trimSlashes(plural.isEmpty ? '' : plural);
+    if (normalized.isEmpty) {
+      return '$base/_search';
     }
-    return '/api/_search/$segment';
+    return '$base/_search';
   }
 
   static String _trimSlashes(String input) {
@@ -301,11 +298,11 @@ class Env {
 
   static String _toKebabCase(String input) {
     final replaced = input
-        .replaceAll(RegExp(r'[\s_]+'), '-')
-        .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-        .replace(/([A-Z])([A-Z][a-z])/g, '$1-$2')
+        .replaceAll(RegExp(r'[ _]+'), '-')
+        .replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (match) => (match.group(1) ?? '') + '-' + (match.group(2) ?? ''))
+        .replaceAllMapped(RegExp(r'([A-Z])([A-Z][a-z])'), (match) => (match.group(1) ?? '') + '-' + (match.group(2) ?? ''))
         .replaceAll(RegExp('-{2,}'), '-');
-    return replaced.toLowerCase();
+    return replaced.toLowerCase().replaceAll(RegExp(r'^-+|-+$'), '');
   }
 
   static String _pluralizeToken(String token) {
