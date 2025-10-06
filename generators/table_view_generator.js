@@ -81,6 +81,15 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const childRelMap = {};
   childRelInfos.forEach((info) => { childRelMap[info.fieldName] = info; });
 
+  const baseFieldNames = new Set((fields || []).map((f) => f.name));
+  const auditFieldNames = ['id', 'createdBy', 'createdDate', 'createdAt', 'createdOn', 'updatedBy', 'updatedDate', 'updatedAt', 'updatedOn', 'lastModifiedBy', 'lastModifiedDate'];
+  auditFieldNames.forEach((name) => baseFieldNames.add(name));
+
+  const fieldLabelEntries = Array.from(baseFieldNames).sort()
+    .map((name) => `    '${name}': '${escapeDartString(labelize(name))}',`)
+    .join('\n');
+
+
   // Helper list (per relationship) for injecting parent option into child controller caches
   const ensureHelperInfos = childRelInfos;
 
@@ -97,6 +106,26 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
       };
     })
     .filter((info) => info && ['onetomany', 'manytomany', 'onetoone'].includes(info.relationshipType));
+
+  const childFieldLabelInfos = Array.from(new Set(childShowInfos.map((info) => info.childEntity).filter(Boolean)))
+    .map((childEntity) => {
+      const childFields = allEntities?.[childEntity] || [];
+      const fieldNames = new Set((childFields || []).map((f) => f.name));
+      auditFieldNames.forEach((name) => fieldNames.add(name));
+      const entries = Array.from(fieldNames).sort()
+        .map((name) => `    '${name}': '${escapeDartString(labelize(name))}',`)
+        .join('\n');
+      const mapName = `_${lcFirst(childEntity)}FieldLabels`;
+      return {
+        entity: childEntity,
+        mapName,
+        mapString: `  static const Map<String, String> ${mapName} = {\n${entries}\n  };`,
+      };
+    });
+  const childFieldLabelMapByEntity = {};
+  childFieldLabelInfos.forEach((info) => {
+    childFieldLabelMapByEntity[info.entity] = info.mapName;
+  });
 
   const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
   const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
@@ -162,9 +191,10 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     const itemsExpr = info.relationshipType === 'onetoone'
       ? `(m.${info.fieldName} == null ? const [] : [m.${info.fieldName}])`
       : `(m.${info.fieldName} ?? const [])`;
+    const childFieldLabelsMap = childFieldLabelMapByEntity[info.childEntity] || '_fieldLabels';
     const viewHandler = quickInfo
       ? `_handleShow${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m)`
-      : `_openChildListDialog(context, title: '${dialogTitle}'.tr, items: ${itemsExpr})`;
+      : `_openChildListDialog(context, title: '${dialogTitle}'.tr, items: ${itemsExpr}, fieldLabels: ${childFieldLabelsMap})`;
     const addButton = quickInfo
       ? `          const SizedBox(width: 8),\n          FilledButton.icon(\n            onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n            icon: const Icon(Icons.add),\n            label: Text('Add ${escapeDartString(labelize(quickInfo.childEntity))}'.tr),\n          ),\n`
       : '';
@@ -185,7 +215,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
         valueExpr = `((m.${f.name}?.length) ?? 0).toString()`;
         const childInfo = childRelMap[f.name];
         if (childInfo) {
-          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m), secondaryActionLabel: 'View ${childInfo.childEntity}'.tr, onSecondaryAction: () => _openChildListDialog(\n                context,\n                title: '${childInfo.childEntity}'.tr,\n                items: m.${f.name},\n                onRefresh: () => _fetch${childInfo.childEntity}${cap(childInfo.fieldName)}(m),\n                onEdit: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _editChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n                onDelete: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _deleteChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n              )),`;
+          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m), secondaryActionLabel: 'View ${childInfo.childEntity}'.tr, onSecondaryAction: () => _openChildListDialog(\n                context,\n                title: '${childInfo.childEntity}'.tr,\n                items: m.${f.name},\n                fieldLabels: ${childFieldLabelMapByEntity[childInfo.childEntity] || '_fieldLabels'},\n                onRefresh: () => _fetch${childInfo.childEntity}${cap(childInfo.fieldName)}(m),\n                onEdit: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _editChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n                onDelete: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _deleteChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n              )),`;
         }
       } else {
         valueExpr = `m.${f.name}?.id?.toString() ?? ''`;
@@ -258,6 +288,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
       context,
       title: '${childLabel}'.tr,
       items: fetched,
+      fieldLabels: ${childFieldLabelMapByEntity[info.childEntity] || '_fieldLabels'},
       onRefresh: () => _fetch${info.childEntity}${cap(info.fieldName)}(parent),
       onEdit: (item) async {
         if (item is ${info.childEntity}Model) {
@@ -297,6 +328,10 @@ class ${className} extends GetView<${controllerClass}> {
   static final List<TableColumnDefinition> _columnDefinitions = [
 ${columnDefinitionList}
   ];
+  static const Map<String, String> _fieldLabels = {
+${fieldLabelEntries}
+  };
+${childFieldLabelInfos.length ? childFieldLabelInfos.map((info) => info.mapString).join('\n') : ''}
   static bool _columnsRegistered = false;
 
   List<_ColumnSpec<${modelClass}>> _buildAllColumnSpecs() {
@@ -533,11 +568,13 @@ ${navItems}
     BuildContext context, {
     required String title,
     Iterable<dynamic>? items,
+    Map<String, String>? fieldLabels,
     Future<List<dynamic>> Function()? onRefresh,
     Future<bool> Function(dynamic item)? onEdit,
     Future<bool> Function(dynamic item)? onDelete,
   }) async {
     var childItems = (items ?? const <dynamic>[]).toList();
+    final effectiveLabels = fieldLabels ?? _fieldLabels;
 
     Future<void> refreshItems(StateSetter setState) async {
       if (onRefresh == null) return;
@@ -578,6 +615,7 @@ ${navItems}
                             padding: const EdgeInsets.only(bottom: 16),
                             child: _childItemCard(
                               item,
+                              fieldLabels: effectiveLabels,
                               onEdit: onEdit == null
                                   ? null
                                   : (value) async {
@@ -770,17 +808,22 @@ String _humanizeKeyLabel(String key) {
   if (key.toLowerCase() == 'id') return 'ID';
   var label = key
       .replaceAllMapped(RegExp(r'\$\{([^}]*)\}'), (match) => match.group(1) ?? '')
+      .replaceAllMapped(RegExp(r'([A-Za-z])\$(\d+)([A-Za-z])'), (match) {
+        final before = match.group(1) ?? '';
+        final token = match.group(2);
+        final after = match.group(3) ?? '';
+        if (token == '1' || token == '2') {
+          return before + 's' + after;
+        }
+        return before + after;
+      })
       .replaceAllMapped(RegExp(r'\$([A-Za-z])'), (match) => match.group(1) ?? '')
       .replaceAllMapped(RegExp(r'\$([0-9]+)'), (match) {
         final token = match.group(1);
-        if (token == null) return '';
-        switch (token) {
-          case '1':
-          case '2':
-            return 's';
-          default:
-            return '';
+        if (token == '1' || token == '2') {
+          return 's';
         }
+        return '';
       })
       .replaceAll(RegExp(r'[{}]+'), '')
       .replaceAll(RegExp(r'[._]+'), ' ');
@@ -809,6 +852,7 @@ String _humanizeKeyLabel(String key) {
 
 Widget _childItemCard(
   dynamic item, {
+  required Map<String, String> fieldLabels,
   Future<bool> Function(dynamic item)? onEdit,
   Future<bool> Function(dynamic item)? onDelete,
 }) {
@@ -880,7 +924,7 @@ Widget _childItemCard(
           ],
           ...entries.where((entry) => entry.key != titleEntry.key).map<Widget>((entry) {
             final value = entry.value is DateTime ? _formatTemporal(entry.value) : entry.value.toString();
-            final label = _humanizeKeyLabel(entry.key);
+            final label = fieldLabels[entry.key] ?? _humanizeKeyLabel(entry.key);
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
