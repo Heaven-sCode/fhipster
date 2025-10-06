@@ -1,0 +1,130 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:get/get.dart';
+import 'package:get/get_connect/http/src/request/request.dart' as get_http;
+import 'package:crypto/crypto.dart';
+
+import 'env/env.dart';
+import 'auth/auth_service.dart';
+
+/// ApiClient wraps GetConnect and:
+/// - injects Authorization header
+/// - enforces HTTPS when httpStrict=true
+/// - optional certificate pinning (SHA256 fingerprints)
+class ApiClient extends GetConnect {
+  late final EnvConfig _cfg;
+  late final AuthService _auth;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _cfg = Env.get();
+    _auth = Get.find<AuthService>();
+
+    httpClient.baseUrl = _cfg.apiHost;
+
+    // HTTPS-only enforcement
+    if (_cfg.httpStrict && !(httpClient.baseUrl ?? '').toLowerCase().startsWith('https://')) {
+      throw Exception('Env.httpStrict=true but apiHost is not HTTPS: ${httpClient.baseUrl}');
+    }
+
+    // Default headers (Authorization etc.)
+    httpClient.addRequestModifier<void>((request) async {
+      final headers = await _headers();
+      request.headers.addAll(headers);
+      return request;
+    });
+
+    // Auto-refresh on 401 then retry once
+    httpClient.addResponseModifier((get_http.Request request, response) async {
+      if (response.statusCode == 401) {
+        final ok = await _auth.tryRefreshToken();
+        if (ok) {
+          final headers = await _headers(forceFresh: true);
+          final mergedHeaders = Map<String, String>.from(request.headers)..addAll(headers);
+
+          List<int>? body;
+          final stream = request.bodyBytes;
+          if (stream != null) {
+            final buffer = <int>[];
+            await for (final chunk in stream) {
+              buffer.addAll(chunk);
+            }
+            if (buffer.isNotEmpty) {
+              body = buffer;
+            }
+          }
+
+          return httpClient.request(
+            request.url.toString(),
+            request.method,
+            body: body,
+            headers: mergedHeaders,
+            query: request.url.queryParameters,
+          );
+        }
+      }
+      return response;
+    });
+
+    // Optional: certificate pinning
+    if (_cfg.pinnedSha256Certs.isNotEmpty) {
+      HttpOverrides.global = _PinningHttpOverrides(_cfg.pinnedSha256Certs);
+    }
+  }
+
+  Future<Map<String, String>> _headers({bool forceFresh = false}) async {
+    final h = <String, String>{
+      'Accept': 'application/json',
+    };
+    final token = await _auth.getAccessToken(forceFresh: forceFresh);
+    if (token != null && token.isNotEmpty) {
+      h['Authorization'] = 'Bearer $token';
+    }
+    return h;
+  }
+}
+
+class _PinningHttpOverrides extends HttpOverrides {
+  final Set<String> _pins;
+  _PinningHttpOverrides(List<String> pins)
+      : _pins = pins.map((e) => e.toLowerCase()).toSet();
+
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    final client = super.createHttpClient(context);
+    client.badCertificateCallback = (X509Certificate cert, String host, int port) {
+      try {
+        final bytes = cert.der;
+        final digest = sha256.convert(bytes).bytes;
+        final hex = _toHex(digest);
+        return _pins.contains(hex);
+      } catch (_) {
+        return false;
+      }
+    };
+    return client;
+  }
+
+  String _toHex(List<int> bytes) {
+    final sb = StringBuffer();
+    for (final b in bytes) {
+      sb.write(b.toRadixString(16).padLeft(2, '0'));
+    }
+    return sb.toString();
+  }
+}
+
+/// Exception thrown when an API request fails.
+class ApiRequestException implements Exception {
+  final int statusCode;
+  final String message;
+  final Response response;
+
+  ApiRequestException(this.statusCode, this.message, this.response);
+
+  bool get isNetworkError => statusCode == 0;
+
+  @override
+  String toString() => 'ApiRequestException(statusCode: ' + statusCode.toString() + ', message: ' + message + ')';
+}

@@ -1,5 +1,4 @@
-function generateColumnPreferencesTemplate() {
-  return `import 'package:get/get.dart';
+import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
 class TableColumnDefinition {
@@ -223,7 +222,3 @@ class ColumnPreferencesService extends GetxService {
     _storage.write(_storageKey, raw);
   }
 }
-`;
-}
-
-module.exports = { generateColumnPreferencesTemplate };

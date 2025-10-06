@@ -1,346 +1,127 @@
-// generators/table_view_generator.js
-// Emits lib/views/<entity>_table_view.dart
-// - Web/mobile friendly table page inside AppShell
-// - Search input (debounced via controller), refresh, create
-// - Horizontal scrolling DataTable
-// - Pagination controls (prev/next + page size)
-// - View / Edit / Delete dialogs
-//
-// Usage:
-//   writeFile(..., generateTableViewTemplate('Order', fields, allEntities), ...)
-
-function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
-function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
-function labelize(fieldName) {
-  return String(fieldName)
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (c) => c.toUpperCase())
-    .trim();
-}
-function sanitizeEnumMember(name) {
-  let s = String(name || '').trim();
-  if (!s) s = 'UNKNOWN';
-  s = s.replace(/[^A-Za-z0-9_]/g, '_');
-  if (/^[0-9]/.test(s)) s = '_' + s;
-  return s;
-}
-function enumTokenLabel(token) {
-  const raw = String(token || '').trim();
-  if (!raw) return '';
-  const spaced = raw
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_\-]+/g, ' ');
-  return spaced
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
-}
-function escapeDartString(text) {
-  return String(text || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-}
-const { toFileName } = require('../utils/naming');
-const { navDestinationsString } = require('./helpers/nav_destinations');
-const { jdlToDartType } = require('../parser/type_mapping');
-
-function generateTableViewTemplate(entityName, fields, allEntities = {}, options = {}) {
-  const className = `${entityName}TableView`;
-  const controllerClass = `${entityName}Controller`;
-  const modelClass = `${entityName}Model`;
-  const instance = lcFirst(entityName);
-  const enableSQLite = !!options.enableSQLite;
-  const navItems = navDestinationsString(options.navRoutes || []);
-  const parsedEnums = options.enums || {};
-  const fieldTypes = fields.map((f) => ({
-    field: f,
-    dartType: jdlToDartType(f.type, parsedEnums),
-    isEnum: !!parsedEnums[f.type],
-  }));
-  const enumTypesUsed = Array.from(new Set(fieldTypes.filter(info => info.isEnum).map(info => info.field.type)));
-  const usesTemporalField = fieldTypes.some((info) => info.dartType === 'DateTime');
-
-  // Determine child creation shortcuts for one-to-many relationships
-  const childRelInfos = (fields || [])
-    .filter((f) => f && f.isRelationship && String(f.relationshipType || '').toLowerCase() === 'onetomany')
-    .map((f) => {
-      const childEntity = f.targetEntity;
-      if (!childEntity) return null;
-      const childFields = allEntities?.[childEntity] || [];
-      const backRef = childFields.find((cf) => cf && cf.isRelationship && String(cf.relationshipType || '').toLowerCase() === 'manytoone' && cf.targetEntity === entityName);
-      if (!backRef) return null;
-      return {
-        fieldName: f.name,
-        label: labelize(f.name),
-        childEntity,
-        childField: backRef.name,
-        childController: `${childEntity}Controller`,
-        childForm: `${childEntity}Form`,
-      };
-    })
-    .filter(Boolean);
-  const childRelMap = {};
-  childRelInfos.forEach((info) => { childRelMap[info.fieldName] = info; });
-
-  const baseFieldNames = new Set((fields || []).map((f) => f.name));
-  const auditFieldNames = ['id', 'createdBy', 'createdDate', 'createdAt', 'createdOn', 'updatedBy', 'updatedDate', 'updatedAt', 'updatedOn', 'lastModifiedBy', 'lastModifiedDate'];
-  auditFieldNames.forEach((name) => baseFieldNames.add(name));
-
-  const fieldLabelEntries = Array.from(baseFieldNames).sort()
-    .map((name) => `    '${name}': '${escapeDartString(labelize(name))}',`)
-    .join('\n');
-
-
-  // Helper list (per relationship) for injecting parent option into child controller caches
-  const ensureHelperInfos = childRelInfos;
-
-  const childShowInfos = (fields || [])
-    .filter((f) => f && f.isRelationship)
-    .map((f) => {
-      if (!f.targetEntity) return null;
-      const relationshipType = String(f.relationshipType || '').toLowerCase();
-      return {
-        fieldName: f.name,
-        childEntity: f.targetEntity,
-        label: labelize(f.name),
-        relationshipType,
-      };
-    })
-    .filter((info) => info && ['onetomany', 'manytomany', 'onetoone'].includes(info.relationshipType));
-
-  const childFieldLabelInfos = Array.from(new Set(childShowInfos.map((info) => info.childEntity).filter(Boolean)))
-    .map((childEntity) => {
-      const childFields = allEntities?.[childEntity] || [];
-      const fieldNames = new Set((childFields || []).map((f) => f.name));
-      auditFieldNames.forEach((name) => fieldNames.add(name));
-      const entries = Array.from(fieldNames).sort()
-        .map((name) => `    '${name}': '${escapeDartString(labelize(name))}',`)
-        .join('\n');
-      const mapName = `_${lcFirst(childEntity)}FieldLabels`;
-      return {
-        entity: childEntity,
-        mapName,
-        mapString: `  static const Map<String, String> ${mapName} = {\n${entries}\n  };`,
-      };
-    });
-  const childFieldLabelMapByEntity = {};
-  childFieldLabelInfos.forEach((info) => {
-    childFieldLabelMapByEntity[info.entity] = info.mapName;
-  });
-
-  const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
-  const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
-  const childServiceImports = Array.from(new Set(childRelInfos.map((info) => `import '../services/${toFileName(info.childEntity)}_service.dart';`))).join('\n');
-  const childModelImports = Array.from(new Set(childRelInfos.map((info) => `import '../models/${toFileName(info.childEntity)}_model.dart';`))).join('\n');
-
-  // Build DataColumn list (headers)
-  const displayFieldInfos = fieldTypes.filter((info) => {
-    const f = info.field;
-    if (f.isRelationship) {
-      const kind = (f.relationshipType || '').toLowerCase();
-      if (kind === 'onetomany' || kind === 'manytomany') {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const fieldDefinitionEntries = displayFieldInfos.map((info) => {
-    const label = escapeDartString(labelize(info.field.name));
-    const isAudit = info.field.isAudit ? 'true' : 'false';
-    return `    TableColumnDefinition(field: '${info.field.name}', label: '${label}', isAudit: ${isAudit})`;
-  }).join(',\n');
-
-  const childDefinitionEntries = childShowInfos.map((info) => {
-    const label = escapeDartString(info.label);
-    return `    TableColumnDefinition(field: '${info.fieldName}Actions', label: 'Show ${label}')`;
-  }).join(',\n');
-
-  const definitionEntries = [fieldDefinitionEntries, childDefinitionEntries]
-    .filter((s) => s && s.length > 0)
-    .join(',\n');
-
-  const columnDefinitionList = definitionEntries;
-
-  const fieldSpecEntries = displayFieldInfos.map((info) => {
-    const f = info.field;
-    const n = f.name;
-    const isAudit = f.isAudit ? 'true' : 'false';
-    const label = escapeDartString(labelize(n));
-    let cellExpr;
-    if (f.isRelationship) {
-      const kind = (f.relationshipType || '').toLowerCase();
-      if (kind === 'onetomany' || kind === 'manytomany') {
-        cellExpr = `Text(((m.${n}?.length) ?? 0).toString())`;
-      } else {
-        cellExpr = `Text(m.${n}?.id?.toString() ?? '')`;
-      }
-    } else if (info.isEnum) {
-      cellExpr = `Text(_enumLabel(m.${n}))`;
-    } else if (info.dartType === 'DateTime') {
-      cellExpr = `Text(_formatTemporal(m.${n}))`;
-    } else {
-      cellExpr = `Text(m.${n} == null ? '' : m.${n}.toString())`;
-    }
-    return `    _ColumnSpec<${modelClass}>(\n      field: '${n}',\n      label: '${label}',\n      isAudit: ${isAudit},\n      cellBuilder: (context, m) => DataCell(${cellExpr}),\n    )`;
-  }).join(',\n');
-
-  const childSpecEntries = childShowInfos.map((info) => {
-    const childLabel = escapeDartString(info.label);
-    const dialogTitle = escapeDartString(labelize(info.childEntity || info.label));
-    const quickInfo = info.relationshipType === 'onetomany' ? childRelMap[info.fieldName] : null;
-    const itemsExpr = info.relationshipType === 'onetoone'
-      ? `(m.${info.fieldName} == null ? const [] : [m.${info.fieldName}])`
-      : `(m.${info.fieldName} ?? const [])`;
-    const childFieldLabelsMap = childFieldLabelMapByEntity[info.childEntity] || '_fieldLabels';
-    const viewHandler = quickInfo
-      ? `_handleShow${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m)`
-      : `_openChildListDialog(context, title: '${dialogTitle}'.tr, items: ${itemsExpr}, fieldLabels: ${childFieldLabelsMap})`;
-    const addButton = quickInfo
-      ? `          const SizedBox(width: 8),\n          FilledButton.icon(\n            onPressed: () => _quickCreate${quickInfo.childEntity}${cap(quickInfo.fieldName)}(context, m),\n            icon: const Icon(Icons.add),\n            label: Text('Add ${escapeDartString(labelize(quickInfo.childEntity))}'.tr),\n          ),\n`
-      : '';
-    return `    _ColumnSpec<${modelClass}>(\n      field: '${info.fieldName}Actions',\n      label: 'Show ${childLabel}',\n      cellBuilder: (context, m) => DataCell(Row(\n        mainAxisSize: MainAxisSize.min,\n        children: [\n          FilledButton.icon(\n            onPressed: () => ${viewHandler},\n            icon: const Icon(Icons.visibility),\n            label: Text('Show ${childLabel}'.tr),\n          ),\n${addButton}        ],\n      )),\n    )`;
-  }).join(',\n');
-
-  const columnSpecEntries = [fieldSpecEntries, childSpecEntries]
-    .filter((s) => s && s.length > 0)
-    .join(',\n');
-
-  const detailRows = fieldTypes.map((info) => {
-    const f = info.field;
-    const label = labelize(f.name);
-    let valueExpr;
-    if (f.isRelationship) {
-      const kind = (f.relationshipType || '').toLowerCase();
-      if (kind === 'onetomany' || kind === 'manytomany') {
-        valueExpr = `((m.${f.name}?.length) ?? 0).toString()`;
-        const childInfo = childRelMap[f.name];
-        if (childInfo) {
-          return `              _kvWithAction('${label}', ${valueExpr}, actionLabel: 'Create ${childInfo.childEntity}'.tr, onAction: () => _quickCreate${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m), secondaryActionLabel: 'View ${childInfo.childEntity}'.tr, onSecondaryAction: () => _openChildListDialog(\n                context,\n                title: '${childInfo.childEntity}'.tr,\n                items: m.${f.name},\n                fieldLabels: ${childFieldLabelMapByEntity[childInfo.childEntity] || '_fieldLabels'},\n                onRefresh: () => _fetch${childInfo.childEntity}${cap(childInfo.fieldName)}(m),\n                onEdit: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _editChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n                onDelete: (item) async {\n                  if (item is ${childInfo.childEntity}Model) {\n                    return await _deleteChild${childInfo.childEntity}${cap(childInfo.fieldName)}(context, m, item);\n                  }\n                  return false;\n                },\n              )),`;
-        }
-      } else {
-        valueExpr = `m.${f.name}?.id?.toString() ?? ''`;
-      }
-    } else if (info.isEnum) {
-      valueExpr = `_enumLabel(m.${f.name})`;
-    } else if (info.dartType === 'DateTime') {
-      valueExpr = `_formatTemporal(m.${f.name})`;
-    } else {
-      valueExpr = `m.${f.name}?.toString() ?? ''`;
-    }
-    return `              _kv('${label}', ${valueExpr}),`;
-  }).join('\n');
-
-  const syncImport = enableSQLite ? "import '../core/sync/sync_service.dart';\n" : '';
-  const intlImport = usesTemporalField ? "import 'package:intl/intl.dart';\n" : '';
-
-  const enumImports = enumTypesUsed
-    .map(e => `import '../enums/${toFileName(e)}_enum.dart';`)
-    .join('\n');
-
-  const enumLabelMaps = enumTypesUsed.map((enumName) => {
-    const values = parsedEnums[enumName] || [];
-    const seen = new Set();
-    const entries = values
-      .map((original) => {
-        const sanitized = sanitizeEnumMember(original);
-        if (seen.has(sanitized)) return null;
-        seen.add(sanitized);
-        const label = enumTokenLabel(original).replace(/'/g, "\\'");
-        return `    ${enumName}.${sanitized}: '${label}',`;
-      })
-      .filter(Boolean)
-      .join('\n');
-    return `const Map<${enumName}, String> _${lcFirst(enumName)}Labels = {\n${entries}\n  };`;
-  }).join('\n\n');
-
-  const enumTokenLabelEntries = [];
-  enumTypesUsed.forEach((enumName) => {
-    (parsedEnums[enumName] || []).forEach((token) => {
-      const key = token;
-      const label = enumTokenLabel(token).replace(/'/g, "\\'");
-      enumTokenLabelEntries.push(`  '${key}': '${label}',`);
-    });
-  });
-  const enumTokenLabelMap = enumTokenLabelEntries.length
-    ? `const Map<String, String> _enumTokenLabels = {\n${Array.from(new Set(enumTokenLabelEntries)).join('\n')}\n};`
-    : 'const Map<String, String> _enumTokenLabels = {};';
-
- const childFetchHelpers = childRelInfos.map((info) => {
-    const childLabel = labelize(info.childEntity).replace(/'/g, "\\'");
-    return `  Future<List<${info.childEntity}Model>> _fetch${info.childEntity}${cap(info.fieldName)}(${modelClass} parent) async {
-    final id = parent.id;
-    if (id == null) return parent.${info.fieldName} ?? const [];
-    if (!Get.isRegistered<${info.childEntity}Service>()) Get.put(${info.childEntity}Service());
-    final svc = Get.find<${info.childEntity}Service>();
-    try {
-      return await svc.list(filters: {'${info.childField}Id': {'equals': id}});
-    } catch (e) {
-      if (!Get.isSnackbarOpen) {
-        Get.snackbar('Error'.tr, 'Failed to load ${childLabel}'.tr);
-      }
-      return parent.${info.fieldName} ?? const [];
-    }
-  }
-
-  Future<void> _handleShow${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
-    final fetched = await _fetch${info.childEntity}${cap(info.fieldName)}(parent);
-    await _openChildListDialog(
-      context,
-      title: '${childLabel}'.tr,
-      items: fetched,
-      fieldLabels: ${childFieldLabelMapByEntity[info.childEntity] || '_fieldLabels'},
-      onRefresh: () => _fetch${info.childEntity}${cap(info.fieldName)}(parent),
-      onEdit: (item) async {
-        if (item is ${info.childEntity}Model) {
-          return await _editChild${info.childEntity}${cap(info.fieldName)}(context, parent, item);
-        }
-        return false;
-      },
-      onDelete: (item) async {
-        if (item is ${info.childEntity}Model) {
-          return await _deleteChild${info.childEntity}${cap(info.fieldName)}(context, parent, item);
-        }
-        return false;
-      },
-    );
-  }`;
-  }).join('\n\n');
-
-  return `import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-${intlImport}
+
 import '../core/app_shell.dart';
 import '../core/env/env.dart';
 import '../core/routes.dart';
 import '../core/preferences/column_preferences.dart';
-import '../controllers/${toFileName(entityName)}_controller.dart';
-import '../models/${toFileName(entityName)}_model.dart';
-import '../forms/${toFileName(entityName)}_form.dart';
+import '../controllers/properties_controller.dart';
+import '../models/properties_model.dart';
+import '../forms/properties_form.dart';
 import '../widgets/common/confirm_dialog.dart';
-${enumImports ? enumImports + '\n' : ''}
-${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${childServiceImports ? childServiceImports + '\n' : ''}${childModelImports ? childModelImports + '\n' : ''}${syncImport}
 
-class ${className} extends GetView<${controllerClass}> {
-  const ${className}({super.key});
+import '../controllers/media_assets_controller.dart';
+import '../forms/media_assets_form.dart';
+import '../services/media_assets_service.dart';
+import '../models/media_assets_model.dart';
+import '../core/sync/sync_service.dart';
 
-  static const String _tableKey = '${toFileName(entityName)}';
-  static const String _tableLabel = '${escapeDartString(labelize(entityName))}';
+
+class PropertiesTableView extends GetView<PropertiesController> {
+  const PropertiesTableView({super.key});
+
+  static const String _tableKey = 'properties';
+  static const String _tableLabel = 'Properties';
   static final List<TableColumnDefinition> _columnDefinitions = [
-${columnDefinitionList}
+    TableColumnDefinition(field: 'id', label: 'Id', isAudit: false),
+    TableColumnDefinition(field: 'title', label: 'Title', isAudit: false),
+    TableColumnDefinition(field: 'area', label: 'Area', isAudit: false),
+    TableColumnDefinition(field: 'value', label: 'Value', isAudit: false),
+    TableColumnDefinition(field: 'facilities', label: 'Facilities', isAudit: false),
+    TableColumnDefinition(field: 'mediaAssetsActions', label: 'Show Media Assets')
   ];
   static const Map<String, String> _fieldLabels = {
-${fieldLabelEntries}
+    'area': 'Area',
+    'createdAt': 'Created At',
+    'createdBy': 'Created By',
+    'createdDate': 'Created Date',
+    'createdOn': 'Created On',
+    'facilities': 'Facilities',
+    'id': 'Id',
+    'lastModifiedBy': 'Last Modified By',
+    'lastModifiedDate': 'Last Modified Date',
+    'mediaAssets': 'Media Assets',
+    'title': 'Title',
+    'updatedAt': 'Updated At',
+    'updatedBy': 'Updated By',
+    'updatedDate': 'Updated Date',
+    'updatedOn': 'Updated On',
+    'value': 'Value',
   };
-${childFieldLabelInfos.length ? childFieldLabelInfos.map((info) => info.mapString).join('\n') : ''}
+  static const Map<String, String> _mediaAssetsFieldLabels = {
+    'createdAt': 'Created At',
+    'createdBy': 'Created By',
+    'createdDate': 'Created Date',
+    'createdOn': 'Created On',
+    'id': 'Id',
+    'image': 'Image',
+    'lastModifiedBy': 'Last Modified By',
+    'lastModifiedDate': 'Last Modified Date',
+    'properties': 'Properties',
+    'title': 'Title',
+    'updatedAt': 'Updated At',
+    'updatedBy': 'Updated By',
+    'updatedDate': 'Updated Date',
+    'updatedOn': 'Updated On',
+  };
   static bool _columnsRegistered = false;
 
-  List<_ColumnSpec<${modelClass}>> _buildAllColumnSpecs() {
+  List<_ColumnSpec<PropertiesModel>> _buildAllColumnSpecs() {
     return [
-${columnSpecEntries}
+    _ColumnSpec<PropertiesModel>(
+      field: 'id',
+      label: 'Id',
+      isAudit: false,
+      cellBuilder: (context, m) => DataCell(Text(m.id == null ? '' : m.id.toString())),
+    ),
+    _ColumnSpec<PropertiesModel>(
+      field: 'title',
+      label: 'Title',
+      isAudit: false,
+      cellBuilder: (context, m) => DataCell(Text(m.title == null ? '' : m.title.toString())),
+    ),
+    _ColumnSpec<PropertiesModel>(
+      field: 'area',
+      label: 'Area',
+      isAudit: false,
+      cellBuilder: (context, m) => DataCell(Text(m.area == null ? '' : m.area.toString())),
+    ),
+    _ColumnSpec<PropertiesModel>(
+      field: 'value',
+      label: 'Value',
+      isAudit: false,
+      cellBuilder: (context, m) => DataCell(Text(m.value == null ? '' : m.value.toString())),
+    ),
+    _ColumnSpec<PropertiesModel>(
+      field: 'facilities',
+      label: 'Facilities',
+      isAudit: false,
+      cellBuilder: (context, m) => DataCell(Text(m.facilities == null ? '' : m.facilities.toString())),
+    ),
+    _ColumnSpec<PropertiesModel>(
+      field: 'mediaAssetsActions',
+      label: 'Show Media Assets',
+      cellBuilder: (context, m) => DataCell(Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FilledButton.icon(
+            onPressed: () => _handleShowMediaAssetsMediaAssets(context, m),
+            icon: const Icon(Icons.visibility),
+            label: Text('Show Media Assets'.tr),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: () => _quickCreateMediaAssetsMediaAssets(context, m),
+            icon: const Icon(Icons.add),
+            label: Text('Add Media Assets'.tr),
+          ),
+        ],
+      )),
+    )
     ];
   }
 
-  _ColumnSpec<${modelClass}>? _findSpec(String field, List<_ColumnSpec<${modelClass}>> specs) {
+  _ColumnSpec<PropertiesModel>? _findSpec(String field, List<_ColumnSpec<PropertiesModel>> specs) {
     for (final spec in specs) {
       if (spec.field == field) return spec;
     }
@@ -353,7 +134,7 @@ ${columnSpecEntries}
     _columnsRegistered = true;
   }
 
-  String get _title => '${entityName}';
+  String get _title => 'Properties';
 
   @override
   Widget build(BuildContext context) {
@@ -375,7 +156,30 @@ ${columnSpecEntries}
     return AppShell(
       title: _title,
       navDestinations: const [
-${navItems}
+        AppDestination(
+          route: AppRoutes.home,
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppDestination(
+          route: '/properties',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Properties',
+        ),
+        AppDestination(
+          route: '/media-assets',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Media Assets',
+        ),
+        AppDestination(
+          route: '/settings/columns',
+          icon: Icons.view_column_outlined,
+          selectedIcon: Icons.view_column,
+          label: 'Column Settings',
+        ),
       ],
       body: Obx(() {
         final items = controller.items;
@@ -393,10 +197,10 @@ ${navItems}
         final allSpecs = _buildAllColumnSpecs();
         var specs = visibleDefs
             .map((def) => _findSpec(def.field, allSpecs))
-            .whereType<_ColumnSpec<${modelClass}>>()
+            .whereType<_ColumnSpec<PropertiesModel>>()
             .toList();
         if (specs.isEmpty) {
-          specs = List<_ColumnSpec<${modelClass}>>.from(allSpecs);
+          specs = List<_ColumnSpec<PropertiesModel>>.from(allSpecs);
         }
 
         return Stack(
@@ -426,7 +230,7 @@ ${navItems}
                 FilledButton.icon(
                   onPressed: () {
                     controller.beginCreate();
-                    _openFormDialog(context, title: 'Create ${entityName}');
+                    _openFormDialog(context, title: 'Create Properties');
                   },
                   icon: const Icon(Icons.add),
                   label: Text('New'.tr),
@@ -572,7 +376,7 @@ ${navItems}
                             final t = controller.total.value;
                             final start = t == 0 ? 0 : (p * s) + 1;
                             final end = ((p + 1) * s).clamp(0, t);
-                            return Text('\$start–\$end of \$t');
+                            return Text('$start–$end of $t');
                           }),
                           IconButton(
                             tooltip: 'Previous'.tr,
@@ -603,7 +407,7 @@ ${navItems}
 
   // --------- dialogs ---------
 
-  Widget _buildRowActions(BuildContext context, ${modelClass} m) {
+  Widget _buildRowActions(BuildContext context, PropertiesModel m) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -617,7 +421,7 @@ ${navItems}
           icon: const Icon(Icons.edit),
           onPressed: () {
             controller.beginEdit(m);
-            _openFormDialog(context, title: 'Edit ${entityName}');
+            _openFormDialog(context, title: 'Edit Properties');
           },
         ),
         IconButton(
@@ -722,7 +526,7 @@ ${navItems}
   }
 
   Future<bool?> _openFormDialog(BuildContext context, {required String title}) {
-    return _showFormDialog(context, title: title, body: ${entityName}Form());
+    return _showFormDialog(context, title: title, body: PropertiesForm());
   }
 
   Future<bool?> _openChildFormDialog(BuildContext context, {required String title, required Widget body}) {
@@ -757,8 +561,11 @@ ${navItems}
     );
   }
 
-  void _openViewDialog(BuildContext context, ${modelClass} m) {
-${enableSQLite ? "    if (Get.isRegistered<SyncService>()) {\n      Get.find<SyncService>().syncNow().catchError((_) {});\n    }\n" : ''}
+  void _openViewDialog(BuildContext context, PropertiesModel m) {
+    if (Get.isRegistered<SyncService>()) {
+      Get.find<SyncService>().syncNow().catchError((_) {});
+    }
+
     Get.dialog(
       Dialog(
         insetPadding: const EdgeInsets.all(16),
@@ -766,7 +573,7 @@ ${enableSQLite ? "    if (Get.isRegistered<SyncService>()) {\n      Get.find<Syn
           constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
           child: Scaffold(
             appBar: AppBar(
-              title: Text('View ${entityName}'),
+              title: Text('View Properties'),
               automaticallyImplyLeading: false,
               actions: [
                 IconButton(
@@ -779,7 +586,30 @@ ${enableSQLite ? "    if (Get.isRegistered<SyncService>()) {\n      Get.find<Syn
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-${detailRows}
+              _kv('Id', m.id?.toString() ?? ''),
+              _kv('Title', m.title?.toString() ?? ''),
+              _kv('Area', m.area?.toString() ?? ''),
+              _kv('Value', m.value?.toString() ?? ''),
+              _kv('Facilities', m.facilities?.toString() ?? ''),
+              _kvWithAction('Media Assets', ((m.mediaAssets?.length) ?? 0).toString(), actionLabel: 'Create MediaAssets'.tr, onAction: () => _quickCreateMediaAssetsMediaAssets(context, m), secondaryActionLabel: 'View MediaAssets'.tr, onSecondaryAction: () => _openChildListDialog(
+                context,
+                title: 'MediaAssets'.tr,
+                items: m.mediaAssets,
+                fieldLabels: _mediaAssetsFieldLabels,
+                onRefresh: () => _fetchMediaAssetsMediaAssets(m),
+                onEdit: (item) async {
+                  if (item is MediaAssetsModel) {
+                    return await _editChildMediaAssetsMediaAssets(context, m, item);
+                  }
+                  return false;
+                },
+                onDelete: (item) async {
+                  if (item is MediaAssetsModel) {
+                    return await _deleteChildMediaAssetsMediaAssets(context, m, item);
+                  }
+                  return false;
+                },
+              )),
                 ],
               ),
             ),
@@ -788,31 +618,69 @@ ${detailRows}
       ),
     );
   }
-${childFetchHelpers ? '\n' + childFetchHelpers + '\n' : ''}
-${ensureHelperInfos.map(info => `
-  ${modelClass} _ensure${info.childEntity}${cap(info.fieldName)}ParentOption(${info.childController} ctrl, ${modelClass} parent) {
-    final index = ctrl.${info.childField}Options.indexWhere((e) => e.id == parent.id);
+
+  Future<List<MediaAssetsModel>> _fetchMediaAssetsMediaAssets(PropertiesModel parent) async {
+    final id = parent.id;
+    if (id == null) return parent.mediaAssets ?? const [];
+    if (!Get.isRegistered<MediaAssetsService>()) Get.put(MediaAssetsService());
+    final svc = Get.find<MediaAssetsService>();
+    try {
+      return await svc.list(filters: {'propertiesId': {'equals': id}});
+    } catch (e) {
+      if (!Get.isSnackbarOpen) {
+        Get.snackbar('Error'.tr, 'Failed to load Media Assets'.tr);
+      }
+      return parent.mediaAssets ?? const [];
+    }
+  }
+
+  Future<void> _handleShowMediaAssetsMediaAssets(BuildContext context, PropertiesModel parent) async {
+    final fetched = await _fetchMediaAssetsMediaAssets(parent);
+    await _openChildListDialog(
+      context,
+      title: 'Media Assets'.tr,
+      items: fetched,
+      fieldLabels: _mediaAssetsFieldLabels,
+      onRefresh: () => _fetchMediaAssetsMediaAssets(parent),
+      onEdit: (item) async {
+        if (item is MediaAssetsModel) {
+          return await _editChildMediaAssetsMediaAssets(context, parent, item);
+        }
+        return false;
+      },
+      onDelete: (item) async {
+        if (item is MediaAssetsModel) {
+          return await _deleteChildMediaAssetsMediaAssets(context, parent, item);
+        }
+        return false;
+      },
+    );
+  }
+
+
+  PropertiesModel _ensureMediaAssetsMediaAssetsParentOption(MediaAssetsController ctrl, PropertiesModel parent) {
+    final index = ctrl.propertiesOptions.indexWhere((e) => e.id == parent.id);
     if (index == -1) {
-      ctrl.${info.childField}Options.add(parent);
+      ctrl.propertiesOptions.add(parent);
       return parent;
     }
-    return ctrl.${info.childField}Options[index];
+    return ctrl.propertiesOptions[index];
   }
-`).join('\n')}
 
-${childRelInfos.map(info => `
-  Future<bool> _editChild${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent, ${info.childEntity}Model child) async {
-    if (!Get.isRegistered<${info.childController}>()) {
-      Get.put(${info.childController}(), permanent: true);
+
+
+  Future<bool> _editChildMediaAssetsMediaAssets(BuildContext context, PropertiesModel parent, MediaAssetsModel child) async {
+    if (!Get.isRegistered<MediaAssetsController>()) {
+      Get.put(MediaAssetsController(), permanent: true);
     }
-    final ctrl = Get.find<${info.childController}>();
-    final parentOption = _ensure${info.childEntity}${cap(info.fieldName)}ParentOption(ctrl, parent);
+    final ctrl = Get.find<MediaAssetsController>();
+    final parentOption = _ensureMediaAssetsMediaAssetsParentOption(ctrl, parent);
     ctrl.beginEdit(child);
-    ctrl.${info.childField}.value = parentOption;
+    ctrl.properties.value = parentOption;
     final saved = await _openChildFormDialog(
       context,
-      title: 'Edit ${info.childEntity}'.tr,
-      body: ${info.childForm}(),
+      title: 'Edit MediaAssets'.tr,
+      body: MediaAssetsForm(),
     );
     if (saved == true) {
       await ctrl.loadPage(ctrl.page.value);
@@ -823,7 +691,7 @@ ${childRelInfos.map(info => `
     return false;
   }
 
-  Future<bool> _deleteChild${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent, ${info.childEntity}Model child) async {
+  Future<bool> _deleteChildMediaAssetsMediaAssets(BuildContext context, PropertiesModel parent, MediaAssetsModel child) async {
     if ((child.id ?? null) == null) return false;
     final ok = await showConfirmDialog(
       context,
@@ -831,40 +699,40 @@ ${childRelInfos.map(info => `
       message: 'Are you sure?'.tr,
     );
     if (ok != true) return false;
-    if (!Get.isRegistered<${info.childController}>()) {
-      Get.put(${info.childController}(), permanent: true);
+    if (!Get.isRegistered<MediaAssetsController>()) {
+      Get.put(MediaAssetsController(), permanent: true);
     }
-    final ctrl = Get.find<${info.childController}>();
+    final ctrl = Get.find<MediaAssetsController>();
     await ctrl.deleteOne(child);
     await ctrl.loadPage(ctrl.page.value);
     await controller.loadPage(controller.page.value);
     return true;
   }
 
-  Future<bool> _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
+  Future<bool> _quickCreateMediaAssetsMediaAssets(BuildContext context, PropertiesModel parent) async {
     if ((parent.id ?? null) == null) {
       Get.snackbar(
         'Error'.tr,
         'error.saveParentFirst'.trParams({
-          'parent': '${labelize(entityName)}',
-          'child': '${labelize(info.childEntity)}',
+          'parent': 'Properties',
+          'child': 'Media Assets',
         }),
         snackPosition: SnackPosition.BOTTOM,
         duration: const Duration(seconds: 3),
       );
       return false;
     }
-    if (!Get.isRegistered<${info.childController}>()) {
-      Get.put(${info.childController}(), permanent: true);
+    if (!Get.isRegistered<MediaAssetsController>()) {
+      Get.put(MediaAssetsController(), permanent: true);
     }
-    final ctrl = Get.find<${info.childController}>();
+    final ctrl = Get.find<MediaAssetsController>();
     ctrl.beginCreate();
-    final parentOption = _ensure${info.childEntity}${cap(info.fieldName)}ParentOption(ctrl, parent);
-    ctrl.${info.childField}.value = parentOption;
+    final parentOption = _ensureMediaAssetsMediaAssetsParentOption(ctrl, parent);
+    ctrl.properties.value = parentOption;
     final saved = await _openChildFormDialog(
       context,
-      title: 'Create ${info.childEntity}'.tr,
-      body: ${info.childForm}(),
+      title: 'Create MediaAssets'.tr,
+      body: MediaAssetsForm(),
     );
     if (saved == true) {
       await ctrl.loadPage(ctrl.page.value);
@@ -874,15 +742,15 @@ ${childRelInfos.map(info => `
     }
     return false;
   }
-`).join('\n')}
+
 }
 
 String _humanizeKeyLabel(String key) {
   if (key.isEmpty) return '';
   if (key.toLowerCase() == 'id') return 'ID';
   var label = key
-      .replaceAllMapped(RegExp(r'\$\{([^}]*)\}'), (match) => match.group(1) ?? '')
-      .replaceAllMapped(RegExp(r'([A-Za-z])\$(\d+)([A-Za-z])'), (match) {
+      .replaceAllMapped(RegExp(r'${([^}]*)}'), (match) => match.group(1) ?? '')
+      .replaceAllMapped(RegExp(r'([A-Za-z])$(d+)([A-Za-z])'), (match) {
         final before = match.group(1) ?? '';
         final token = match.group(2);
         final after = match.group(3) ?? '';
@@ -891,8 +759,8 @@ String _humanizeKeyLabel(String key) {
         }
         return before + after;
       })
-      .replaceAllMapped(RegExp(r'\$([A-Za-z])'), (match) => match.group(1) ?? '')
-      .replaceAllMapped(RegExp(r'\$([0-9]+)'), (match) {
+      .replaceAllMapped(RegExp(r'$([A-Za-z])'), (match) => match.group(1) ?? '')
+      .replaceAllMapped(RegExp(r'$([0-9]+)'), (match) {
         final token = match.group(1);
         if (token == '1' || token == '2') {
           return 's';
@@ -916,10 +784,10 @@ String _humanizeKeyLabel(String key) {
     final b = match.group(2) ?? '';
     return '$a $b';
   });
-  label = label.replaceAll(RegExp(r'\s+'), ' ').trim();
+  label = label.replaceAll(RegExp(r's+'), ' ').trim();
   if (label.isEmpty) return _humanizeEnumToken(key);
   return label
-      .split(RegExp(r'\s+'))
+      .split(RegExp(r's+'))
       .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
       .join(' ');
 }
@@ -1118,41 +986,16 @@ Widget _kvWithAction(
   );
 }
 
-${usesTemporalField
-    ? `String _formatTemporal(dynamic value) {
-  if (value == null) return '';
-  DateTime? parsed;
-  if (value is DateTime) {
-    parsed = value;
-  } else if (value is String) {
-    parsed = DateTime.tryParse(value);
-  } else if (value is num) {
-    if (value >= 1000000000000) {
-      parsed = DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true);
-    } else if (value >= 1000000000) {
-      parsed = DateTime.fromMillisecondsSinceEpoch((value * 1000).toInt(), isUtc: true);
-    }
-  }
-  if (parsed != null) {
-    final local = parsed.isUtc ? parsed.toLocal() : parsed;
-    final hasTime = local.hour != 0 || local.minute != 0 || local.second != 0 || local.millisecond != 0 || local.microsecond != 0;
-    final locale = Get.locale?.toString();
-    final formatter = hasTime ? DateFormat.yMMMEd(locale).add_jm() : DateFormat.yMMMEd(locale);
-    return formatter.format(local);
-  }
-  return value.toString();
-}`
-    : `String _formatTemporal(dynamic value) {
+String _formatTemporal(dynamic value) {
   if (value == null) return '';
   return value.toString();
-}`}
-${enumLabelMaps ? '\n' + enumLabelMaps + '\n' : ''}
-${enumTokenLabelMap}\n
+}
+
+const Map<String, String> _enumTokenLabels = {};
+
 String _enumLabel(Object? value) {
   if (value == null) return '';
-${enumTypesUsed.map(enumName => `  if (value is ${enumName}) {
-    return _${lcFirst(enumName)}Labels[value] ?? _enumTokenLabels[value.toString().split('.').last] ?? _humanizeEnumToken(value.toString().split('.').last);
-  }`).join('\n')}
+
   if (value is Enum) {
     final token = value.toString().split('.').last;
     return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
@@ -1189,12 +1032,8 @@ String _humanizeEnumToken(String token) {
       .replaceAll(RegExp(r'[_-]+'), ' ')
       .trim();
   if (spaced.isEmpty) return '';
-  final parts = spaced.split(RegExp('\\\\s+'));
+  final parts = spaced.split(RegExp('\\s+'));
   return parts
       .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
       .join(' ');
 }
-`;
-}
-
-module.exports = { generateTableViewTemplate };

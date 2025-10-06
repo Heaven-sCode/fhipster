@@ -1,9 +1,4 @@
-const { navDestinationsString } = require('./helpers/nav_destinations');
-
-function generateColumnSettingsViewTemplate(navRoutes = []) {
-  const navItems = navDestinationsString(navRoutes);
-
-  return `import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../core/app_shell.dart';
@@ -21,7 +16,30 @@ class ColumnSettingsView extends StatelessWidget {
     return AppShell(
       title: _title,
       navDestinations: const [
-${navItems}
+        AppDestination(
+          route: AppRoutes.home,
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppDestination(
+          route: '/properties',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Properties',
+        ),
+        AppDestination(
+          route: '/media-assets',
+          icon: Icons.table_chart_outlined,
+          selectedIcon: Icons.table_chart,
+          label: 'Media Assets',
+        ),
+        AppDestination(
+          route: '/settings/columns',
+          icon: Icons.view_column_outlined,
+          selectedIcon: Icons.view_column,
+          label: 'Column Settings',
+        ),
       ],
       body: Obx(() {
         final registry = prefs.registry;
@@ -132,7 +150,3 @@ ${navItems}
     );
   }
 }
-`;
-}
-
-module.exports = { generateColumnSettingsViewTemplate };
