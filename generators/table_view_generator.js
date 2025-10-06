@@ -769,11 +769,14 @@ String _humanizeKeyLabel(String key) {
   if (key.isEmpty) return '';
   if (key.toLowerCase() == 'id') return 'ID';
   final cleaned = key
-      .replaceAll(RegExp(r'[._]+'), ' ')
-      .replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2')
+      .replaceAll(RegExp(r'[._]+'), ' ');
+  final spaced = cleaned.replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2');
+  final sanitized = spaced.replaceAll(RegExp(r'\$\d'), '');
+  final normalized = sanitized
+      .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
-  if (cleaned.isEmpty) return _humanizeEnumToken(key);
-  return cleaned
+  if (normalized.isEmpty) return _humanizeEnumToken(key);
+  return normalized
       .split(RegExp(r'\s+'))
       .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
       .join(' ');
