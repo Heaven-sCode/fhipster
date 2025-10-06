@@ -21,6 +21,7 @@ class ColumnPreferencesService extends GetxService {
   final RxMap<String, String> _tableLabels = <String, String>{}.obs;
   final RxMap<String, List<TableColumnDefinition>> _registry = <String, List<TableColumnDefinition>>{}.obs;
   final RxMap<String, List<String>> _hidden = <String, List<String>>{}.obs;
+  final RxMap<String, List<String>> _orders = <String, List<String>>{}.obs;
 
   Future<ColumnPreferencesService> init() async {
     final raw = _storage.read(_storageKey);
@@ -28,6 +29,15 @@ class ColumnPreferencesService extends GetxService {
       raw.forEach((key, value) {
         if (value is List) {
           _hidden[key] = value.map((e) => e.toString()).toList();
+        } else if (value is Map) {
+          final hidden = value['hidden'];
+          final order = value['order'];
+          if (hidden is List) {
+            _hidden[key] = hidden.map((e) => e.toString()).toList();
+          }
+          if (order is List) {
+            _orders[key] = order.map((e) => e.toString()).toList();
+          }
         }
       });
     }
@@ -36,6 +46,7 @@ class ColumnPreferencesService extends GetxService {
 
   RxMap<String, List<TableColumnDefinition>> get registry => _registry;
   RxMap<String, List<String>> get hidden => _hidden;
+  RxMap<String, List<String>> get orders => _orders;
 
   String tableLabel(String tableKey) => _tableLabels[tableKey] ?? tableKey;
 
@@ -68,6 +79,26 @@ class ColumnPreferencesService extends GetxService {
       currentHidden.removeWhere((field) => !validFields.contains(field));
       _hidden[tableKey] = currentHidden;
       _hidden.refresh();
+
+      final existingOrder = List<String>.from(_orders[tableKey] ?? const []);
+      final ordered = <String>[];
+      for (final field in existingOrder) {
+        if (validFields.contains(field)) {
+          ordered.add(field);
+        }
+      }
+      for (final def in newDefs) {
+        if (!ordered.contains(def.field)) {
+          ordered.add(def.field);
+        }
+      }
+      _orders[tableKey] = ordered;
+      _orders.refresh();
+
+      _persist();
+    } else if (!_orders.containsKey(tableKey)) {
+      _orders[tableKey] = newDefs.map((d) => d.field).toList();
+      _orders.refresh();
       _persist();
     }
   }
@@ -76,8 +107,28 @@ class ColumnPreferencesService extends GetxService {
     return List<TableColumnDefinition>.from(_registry[tableKey] ?? const []);
   }
 
-  List<TableColumnDefinition> visibleDefinitions(String tableKey) {
+  List<TableColumnDefinition> orderedDefinitions(String tableKey) {
     final defs = definitions(tableKey);
+    final order = _orders[tableKey];
+    if (order == null || order.isEmpty) {
+      return defs;
+    }
+    final lookup = <String, TableColumnDefinition>{for (final def in defs) def.field: def};
+    final ordered = <TableColumnDefinition>[];
+    for (final field in order) {
+      final def = lookup[field];
+      if (def != null) ordered.add(def);
+    }
+    for (final def in defs) {
+      if (!order.contains(def.field)) {
+        ordered.add(def);
+      }
+    }
+    return ordered;
+  }
+
+  List<TableColumnDefinition> visibleDefinitions(String tableKey) {
+    final defs = orderedDefinitions(tableKey);
     return defs.where((d) => isVisible(tableKey, d.field)).toList();
   }
 
@@ -99,16 +150,44 @@ class ColumnPreferencesService extends GetxService {
     _persist();
   }
 
+  void setColumnOrder(String tableKey, List<String> orderedFields) {
+    final defs = definitions(tableKey);
+    final valid = defs.map((d) => d.field).toSet();
+    final sanitized = orderedFields.where((field) => valid.contains(field)).toList();
+    for (final def in defs) {
+      if (!sanitized.contains(def.field)) {
+        sanitized.add(def.field);
+      }
+    }
+    _orders[tableKey] = sanitized;
+    _orders.refresh();
+    _persist();
+  }
+
   void reset(String tableKey) {
     if (_hidden.containsKey(tableKey)) {
       _hidden.remove(tableKey);
       _hidden.refresh();
-      _persist();
     }
+    if (_orders.containsKey(tableKey)) {
+      _orders.remove(tableKey);
+      _orders.refresh();
+    }
+    _persist();
   }
 
   void _persist() {
-    final raw = _hidden.map((key, value) => MapEntry(key, List<String>.from(value)));
+    final keys = <String>{
+      ..._hidden.keys,
+      ..._orders.keys,
+    };
+    final raw = <String, Map<String, dynamic>>{};
+    for (final key in keys) {
+      raw[key] = {
+        'hidden': List<String>.from(_hidden[key] ?? const []),
+        'order': List<String>.from(_orders[key] ?? const []),
+      };
+    }
     _storage.write(_storageKey, raw);
   }
 }

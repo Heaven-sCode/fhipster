@@ -25,6 +25,9 @@ function generateSyncServiceTemplate(entityNames = []) {
         .map(name => `import '${relativeImport(syncDir, path.posix.join(daoDir, `${toFileName(name)}_dao.dart`))}';`)
         .join('\n')
     : '';
+  const apiClientImport = hasEntities
+    ? `import '${relativeImport(syncDir, 'core/api_client.dart')}';\n`
+    : '';
 
   const daoFields = hasEntities
     ? safeEntities.map(name => `  ${name}Dao? _${lcFirst(name)}Dao;`).join('\n')
@@ -39,7 +42,7 @@ function generateSyncServiceTemplate(entityNames = []) {
         .map(name => {
           const className = ucFirst(name);
           const field = lcFirst(name);
-          return `  Future<void> _sync${className}() async {\n    if (!Get.isRegistered<${className}Service>()) Get.put(${className}Service());\n    final service = Get.find<${className}Service>();\n    final dao = _${field}Dao ??= ${className}Dao();\n    try {\n      final dirtyItems = await dao.getDirty();\n      for (final local in dirtyItems) {\n        final remoteKey = local.id?.toString();\n        try {\n          final response = local.id != null\n              ? await service.update(local)\n              : await service.create(local);\n          final serverNow = DateTime.now().toIso8601String();\n          await dao.upsert(response, remoteId: response.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);\n          final responseId = response.id?.toString() ?? remoteKey;\n          if (responseId != null) {\n            await dao.markCleanByRemoteId(responseId, serverUpdatedAt: serverNow);\n          }\n        } catch (e, st) {\n          // ignore: avoid_print\n          print('Failed to push dirty ${className}: $e');\n          // ignore: avoid_print\n          print(st);\n        }\n      }\n\n      final remoteItems = await service.list();\n      for (final item in remoteItems) {\n        final serverNow = DateTime.now().toIso8601String();\n        await dao.upsert(item, remoteId: item.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);\n      }\n    } catch (e, st) {\n      // ignore: avoid_print\n      print('Failed to sync ${className}: $e');\n      // ignore: avoid_print\n      print(st);\n    }\n  }`;
+          return `  Future<void> _sync${className}() async {\n    if (!Get.isRegistered<${className}Service>()) Get.put(${className}Service());\n    final service = Get.find<${className}Service>();\n    final dao = _${field}Dao ??= ${className}Dao();\n    try {\n      final dirtyItems = await dao.getDirty();\n      for (final local in dirtyItems) {\n        final remoteKey = local.id?.toString();\n        try {\n          final response = local.id != null\n              ? await service.update(local)\n              : await service.create(local);\n          final serverNow = DateTime.now().toIso8601String();\n          await dao.upsert(response, remoteId: response.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);\n          final responseId = response.id?.toString() ?? remoteKey;\n          if (responseId != null) {\n            await dao.markCleanByRemoteId(responseId, serverUpdatedAt: serverNow);\n          }\n        } catch (e, st) {\n          if (e is ApiRequestException && e.isNetworkError) {\n            rethrow;\n          }\n          // ignore: avoid_print\n          print('Failed to push dirty ${className}: $e');\n          // ignore: avoid_print\n          print(st);\n        }\n      }\n\n      final remoteItems = await service.list();\n      for (final item in remoteItems) {\n        final serverNow = DateTime.now().toIso8601String();\n        await dao.upsert(item, remoteId: item.id?.toString(), serverUpdatedAt: serverNow, markDirty: false);\n      }\n    } catch (e, st) {\n      if (e is ApiRequestException && e.isNetworkError) {\n        // ignore: avoid_print\n        print('Skipped ${className} sync (offline): ' + e.message);\n      } else {\n        // ignore: avoid_print\n        print('Failed to sync ${className}: $e');\n        // ignore: avoid_print\n        print(st);\n      }\n    }\n  }`;
         })
         .join('\n\n')
     : '';
@@ -50,7 +53,7 @@ import 'package:get/get.dart';
 
 import '../connectivity/connectivity_service.dart';
 import '../env/env.dart';
-${serviceImports ? serviceImports + '\n' : ''}${daoImports ? daoImports + '\n' : ''}
+${apiClientImport}${serviceImports ? serviceImports + '\n' : ''}${daoImports ? daoImports + '\n' : ''}
 
 /// Periodically runs background sync tasks when the device is online.
 /// Handles pushing local dirty records and refreshing the local cache.

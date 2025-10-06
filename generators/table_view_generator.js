@@ -768,15 +768,40 @@ ${childRelInfos.map(info => `
 String _humanizeKeyLabel(String key) {
   if (key.isEmpty) return '';
   if (key.toLowerCase() == 'id') return 'ID';
-  final cleaned = key
+  var label = key
+      .replaceAllMapped(RegExp(r'\$\{([^}]*)\}'), (match) => match.group(1) ?? '')
+      .replaceAllMapped(RegExp(r'\$([A-Za-z])'), (match) => match.group(1) ?? '')
+      .replaceAllMapped(RegExp(r'\$([0-9]+)'), (match) {
+        final token = match.group(1);
+        if (token == null) return '';
+        switch (token) {
+          case '1':
+          case '2':
+            return 's';
+          default:
+            return '';
+        }
+      })
+      .replaceAll(RegExp(r'[{}]+'), '')
       .replaceAll(RegExp(r'[._]+'), ' ');
-  final spaced = cleaned.replaceAll(RegExp(r'([a-z0-9])([A-Z])'), r'$1 $2');
-  final sanitized = spaced.replaceAll(RegExp(r'\$\d'), '');
-  final normalized = sanitized
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (normalized.isEmpty) return _humanizeEnumToken(key);
-  return normalized
+  label = label.replaceAllMapped(RegExp(r'([a-z0-9])([A-Z])'), (match) {
+    final a = match.group(1) ?? '';
+    final b = match.group(2) ?? '';
+    return '$a $b';
+  });
+  label = label.replaceAllMapped(RegExp(r'([A-Za-z])([0-9])'), (match) {
+    final a = match.group(1) ?? '';
+    final b = match.group(2) ?? '';
+    return '$a $b';
+  });
+  label = label.replaceAllMapped(RegExp(r'([0-9])([A-Za-z])'), (match) {
+    final a = match.group(1) ?? '';
+    final b = match.group(2) ?? '';
+    return '$a $b';
+  });
+  label = label.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (label.isEmpty) return _humanizeEnumToken(key);
+  return label
       .split(RegExp(r'\s+'))
       .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
       .join(' ');

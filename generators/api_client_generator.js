@@ -117,6 +117,20 @@ class _PinningHttpOverrides extends HttpOverrides {
     return sb.toString();
   }
 }
+
+/// Exception thrown when an API request fails.
+class ApiRequestException implements Exception {
+  final int statusCode;
+  final String message;
+  final Response response;
+
+  ApiRequestException(this.statusCode, this.message, this.response);
+
+  bool get isNetworkError => statusCode == 0;
+
+  @override
+  String toString() => 'ApiRequestException(statusCode: ' + statusCode.toString() + ', message: ' + message + ')';
+}
 `;
 }
 

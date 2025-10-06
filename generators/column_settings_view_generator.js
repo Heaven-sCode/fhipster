@@ -50,29 +50,51 @@ ${navItems}
               Expanded(
                 child: TabBarView(
                   children: tableKeys.map((key) {
-                    final columns = registry[key] ?? const <TableColumnDefinition>[];
-                    if (columns.isEmpty) {
-                      return Center(child: Text('No columns available'.tr));
-                    }
-                    return ListView.separated(
-                      key: PageStorageKey<String>('column-settings-' + key),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      itemCount: columns.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, columnIndex) {
-                        final column = columns[columnIndex];
-                        return Obx(() {
-                          final visible = prefs.isVisible(key, column.field);
-                          return SwitchListTile(
+                    return Obx(() {
+                      final columns = prefs.orderedDefinitions(key);
+                      if (columns.isEmpty) {
+                        return Center(child: Text('No columns available'.tr));
+                      }
+                      final orderFields = columns.map((c) => c.field).toList();
+                      return ReorderableListView.builder(
+                        key: PageStorageKey<String>('column-settings-' + key),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        buildDefaultDragHandles: false,
+                        itemCount: columns.length,
+                        onReorder: (oldIndex, newIndex) {
+                          if (newIndex > oldIndex) newIndex -= 1;
+                          final updated = List<String>.from(orderFields);
+                          final moved = updated.removeAt(oldIndex);
+                          updated.insert(newIndex, moved);
+                          prefs.setColumnOrder(key, updated);
+                        },
+                        itemBuilder: (context, columnIndex) {
+                          final column = columns[columnIndex];
+                          return Container(
                             key: ValueKey(key + '_' + column.field),
-                            title: Text(column.label),
-                            subtitle: column.isAudit ? Text('Audit field'.tr) : null,
-                            value: visible,
-                            onChanged: (value) => prefs.setColumnVisible(key, column.field, value),
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Obx(() {
+                              final visible = prefs.isVisible(key, column.field);
+                              return SwitchListTile(
+                                controlAffinity: ListTileControlAffinity.trailing,
+                                secondary: ReorderableDragStartListener(
+                                  index: columnIndex,
+                                  child: const Icon(Icons.drag_indicator),
+                                ),
+                                title: Text(column.label),
+                                subtitle: column.isAudit ? Text('Audit field'.tr) : null,
+                                value: visible,
+                                onChanged: (value) => prefs.setColumnVisible(key, column.field, value),
+                              );
+                            }),
                           );
-                        });
-                      },
-                    );
+                        },
+                      );
+                    });
                   }).toList(),
                 ),
               ),

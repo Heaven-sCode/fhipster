@@ -302,8 +302,27 @@ ${tenantEnabled ? applyTenantMethod : ''}
 
   Never _throwHttp(Response res) {
     final code = res.statusCode ?? 0;
-    final snippet = (res.bodyString ?? res.body?.toString() ?? '').toString();
-    throw Exception('HTTP ' + code.toString() + ' — ' + snippet);
+    final statusText = res.statusText;
+    final exceptionText = res.status?.toString();
+    final body = res.body;
+    String bodyText = res.bodyString ?? '';
+    if (bodyText.trim().isEmpty && body is Map) {
+      final message = body['message'] ?? body['error_description'] ?? body['error'] ?? body['title'];
+      if (message is String && message.trim().isNotEmpty) {
+        bodyText = message.trim();
+      }
+    }
+    if (bodyText.trim().isEmpty && statusText != null && statusText.trim().isNotEmpty) {
+      bodyText = statusText.trim();
+    }
+    if (bodyText.trim().isEmpty && exceptionText != null && exceptionText.trim().isNotEmpty) {
+      bodyText = exceptionText.trim();
+    }
+    if (bodyText.trim().isEmpty) {
+      bodyText = code == 0 ? 'Network request failed' : 'Request failed without a response body';
+    }
+    final prefix = code == 0 ? 'NETWORK' : code.toString();
+    throw ApiRequestException(code, 'HTTP ' + prefix + ' — ' + bodyText, res);
   }
 }
 `;
