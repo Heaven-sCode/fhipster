@@ -281,12 +281,19 @@ class PropertiesTableView extends GetView<PropertiesController> {
                                   ...specs.map((spec) => DataColumn(label: Text(spec.label))),
                                   DataColumn(label: Text('Actions'.tr)),
                                 ],
-                                rows: items.map((m) {
+                                rows: items.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final m = entry.value;
                                   final cells = specs
                                       .map((spec) => spec.cellBuilder(context, m))
                                       .toList();
                                   cells.add(DataCell(_buildRowActions(context, m)));
-                                  return DataRow(cells: cells);
+                                  return DataRow(
+                                    color: index.isEven
+                                        ? MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.2))
+                                        : null,
+                                    cells: cells,
+                                  );
                                 }).toList(),
                               ),
                             )

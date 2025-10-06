@@ -61,20 +61,27 @@ ${navItems}
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Align(
-                            alignment: Alignment.centerLeft,
-                            child: ToggleButtons(
-                              borderRadius: const BorderRadius.all(Radius.circular(8)),
-                              constraints: const BoxConstraints(minHeight: 36, minWidth: 40),
-                              isSelected: [
-                                layoutMode == 'table',
-                                layoutMode == 'cards',
-                              ],
-                              onPressed: (index) {
-                                prefs.setLayoutMode(key, index == 0 ? 'table' : 'cards');
-                              },
-                              children: const [
-                                Icon(Icons.table_chart),
-                                Icon(Icons.view_agenda_outlined),
+                            alignment: Alignment.centerRight,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Layout'.tr),
+                                const SizedBox(width: 8),
+                                ToggleButtons(
+                                  borderRadius: const BorderRadius.all(Radius.circular(8)),
+                                  constraints: const BoxConstraints(minHeight: 36, minWidth: 40),
+                                  isSelected: [
+                                    layoutMode == 'table',
+                                    layoutMode == 'cards',
+                                  ],
+                                  onPressed: (index) {
+                                    prefs.setLayoutMode(key, index == 0 ? 'table' : 'cards');
+                                  },
+                                  children: const [
+                                    Icon(Icons.table_chart),
+                                    Icon(Icons.view_agenda_outlined),
+                                  ],
+                                ),
                               ],
                             ),
                           ),
