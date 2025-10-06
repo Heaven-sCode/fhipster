@@ -64,8 +64,11 @@ class LoginController extends GetxController {
         } else {
           await _auth.forgetRememberedUsername();
         }
-        // Navigate to home
-        Get.offAllNamed(AppRoutes.home);
+        final pending = _auth.consumePendingRoute();
+        final target = (pending == null || pending.isEmpty || pending == AppRoutes.login || pending == AppRoutes.splash)
+            ? AppRoutes.home
+            : pending;
+        Get.offAllNamed(target);
       } else {
         errorText.value = 'Invalid credentials or session error'.tr;
       }

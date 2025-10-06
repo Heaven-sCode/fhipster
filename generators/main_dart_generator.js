@@ -41,6 +41,8 @@ ${sqliteInit}
   final columnPrefs = Get.put(ColumnPreferencesService(), permanent: true);
   await columnPrefs.init();
   registerAllColumnPreferences(columnPrefs);
+  final auth = Get.find<AuthService>();
+  await auth.bootstrap();
 ${syncRegistration}
   runApp(const FHipsterApp());
 }

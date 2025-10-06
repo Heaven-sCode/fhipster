@@ -203,6 +203,28 @@ class PropertiesTableView extends GetView<PropertiesController> {
           specs = List<_ColumnSpec<PropertiesModel>>.from(allSpecs);
         }
 
+        final sortEntries = controller.sort;
+        String? activeSortField;
+        bool isSortDescending = false;
+        if (sortEntries.isNotEmpty) {
+          final parts = sortEntries.first.split(',');
+          if (parts.isNotEmpty) {
+            activeSortField = parts.first;
+          }
+          if (parts.length > 1) {
+            isSortDescending = parts[1].toLowerCase() == 'desc';
+          }
+        }
+
+        int? sortColumnIndex;
+        bool sortAscending = !isSortDescending;
+        if (activeSortField != null) {
+          final index = specs.indexWhere((spec) => spec.field == activeSortField);
+          if (index != -1) {
+            sortColumnIndex = index;
+          }
+        }
+
         return Stack(
           children: [
             Column(
@@ -273,12 +295,18 @@ class PropertiesTableView extends GetView<PropertiesController> {
                       child: layoutMode == 'table'
                           ? SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
-                              child: DataTable(
+                          child: DataTable(
+                                sortColumnIndex: sortColumnIndex,
+                                sortAscending: sortAscending,
                                 headingRowHeight: 42,
                                 dataRowMinHeight: 40,
                                 dataRowMaxHeight: 56,
                                 columns: [
-                                  ...specs.map((spec) => DataColumn(label: Text(spec.label))),
+                                  for (var i = 0; i < specs.length; i++)
+                                    DataColumn(
+                                      label: _buildSortLabel(context, controller, specs[i].field, specs[i].label, activeSortField, isSortDescending),
+                                      onSort: (_, __) => _toggleSort(controller, specs[i].field),
+                                    ),
                                   DataColumn(label: Text('Actions'.tr)),
                                 ],
                                 rows: items.asMap().entries.map((entry) {
@@ -447,6 +475,56 @@ class PropertiesTableView extends GetView<PropertiesController> {
         ),
       ],
     );
+  }
+
+  Widget _buildSortLabel(BuildContext context, PropertiesController controller, String field, String label, String? activeField, bool isDescending) {
+    final isActive = activeField == field;
+    final theme = Theme.of(context);
+    final color = isActive ? theme.colorScheme.primary : null;
+    IconData icon;
+    if (!isActive) {
+      icon = Icons.unfold_more;
+    } else {
+      icon = isDescending ? Icons.arrow_downward : Icons.arrow_upward;
+    }
+    return InkWell(
+      borderRadius: const BorderRadius.all(Radius.circular(6)),
+      onTap: () => _toggleSort(controller, field),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: isActive
+                ? theme.textTheme.titleSmall?.copyWith(color: color, fontWeight: FontWeight.w600)
+                : theme.textTheme.titleSmall,
+          ),
+          const SizedBox(width: 4),
+          Icon(icon, size: 16, color: color ?? theme.iconTheme.color),
+        ],
+      ),
+    );
+  }
+
+  void _toggleSort(PropertiesController controller, String field) {
+    final current = controller.sort.toList();
+    final defaultSort = Env.get().defaultSort;
+    if (current.isNotEmpty) {
+      final first = current.first;
+      final parts = first.split(',');
+      final currentField = parts.isNotEmpty ? parts.first : '';
+      final currentDir = parts.length > 1 ? parts[1].toLowerCase() : 'asc';
+
+      if (currentField == field) {
+        if (currentDir == 'asc') {
+          controller.changeSort(['$field,desc']);
+        } else {
+          controller.changeSort(defaultSort.isNotEmpty ? List<String>.from(defaultSort) : <String>[]);
+        }
+        return;
+      }
+    }
+    controller.changeSort(['$field,asc']);
   }
 
   Future<void> _openChildListDialog(

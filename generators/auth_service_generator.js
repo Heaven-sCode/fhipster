@@ -5,6 +5,7 @@ function generateAuthServiceTemplate() {
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:get/get_connect/http/src/response/response.dart';
 
 import '../env/env.dart';
 import 'token_decoder.dart';
@@ -23,6 +24,7 @@ class AuthService extends GetxService {
   final RxnString _refreshToken = RxnString();
   final Rxn<DateTime> _refreshExpiry = Rxn<DateTime>();
   String? _rememberedUsername;
+  String? _pendingRoute;
   bool _loaded = false;
 
   bool get isAuthenticated {
@@ -30,6 +32,7 @@ class AuthService extends GetxService {
     if (token == null || token.isEmpty) return false;
     final expiry = _accessExpiry.value;
     if (expiry == null) return true;
+    // Allow a small leeway window so we don't thrash logins when the token is about to expire
     return DateTime.now().isBefore(expiry.subtract(const Duration(seconds: 5)));
   }
 
@@ -111,6 +114,7 @@ class AuthService extends GetxService {
     _refreshExpiry.value = null;
     username.value = null;
     authorities.clear();
+    _pendingRoute = null;
   }
 
   Future<void> saveTokens({
@@ -129,13 +133,22 @@ class AuthService extends GetxService {
 
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
-    _loaded = true;
+    String? remembered;
+    String? access;
+    String? accessExp;
+    String? refresh;
+    String? refreshExp;
+    try {
+      remembered = await _read(_cfg.storageKeyRememberedUsername);
+      access = await _read(_cfg.storageKeyAccessToken);
+      accessExp = await _read(_cfg.storageKeyAccessExpiry);
+      refresh = await _read(_cfg.storageKeyRefreshToken);
+      refreshExp = await _read(_cfg.storageKeyRefreshExpiry);
+    } finally {
+      _loaded = true;
+    }
 
-    _rememberedUsername = await _read(_cfg.storageKeyRememberedUsername);
-    final access = await _read(_cfg.storageKeyAccessToken);
-    final accessExp = await _read(_cfg.storageKeyAccessExpiry);
-    final refresh = await _read(_cfg.storageKeyRefreshToken);
-    final refreshExp = await _read(_cfg.storageKeyRefreshExpiry);
+    _rememberedUsername = remembered;
 
     if (access != null && access.isNotEmpty) {
       final accessExpiry = _parseMillis(accessExp) ?? jwtExpiry(access);
@@ -232,6 +245,9 @@ class AuthService extends GetxService {
     );
 
     if (!res.isOk) {
+      if (_isNetworkFailure(res) && isAuthenticated) {
+        return true;
+      }
       return false;
     }
 
@@ -426,11 +442,21 @@ class AuthService extends GetxService {
   }
 
   Future<String?> _read(String key) async {
+    String? value;
     if (_secure != null) {
-      return await _secure!.read(key: key);
+      value = await _secure!.read(key: key);
     } else {
-      return _box!.read<String>(key);
+      final raw = _box!.read(key);
+      if (raw is String?) {
+        value = raw;
+      } else if (raw != null) {
+        value = raw.toString();
+      }
     }
+    if (value == null) return null;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty || trimmed.toLowerCase() == 'null') return null;
+    return trimmed;
   }
 
   Future<void> _delete(String key) async {
@@ -439,6 +465,24 @@ class AuthService extends GetxService {
     } else {
       await _box!.remove(key);
     }
+  }
+
+  void setPendingRoute(String? route) {
+    final normalized = (route == null || route.isEmpty) ? null : route;
+    _pendingRoute = normalized;
+  }
+
+  String? consumePendingRoute() {
+    final route = _pendingRoute;
+    _pendingRoute = null;
+    return route;
+  }
+
+  bool _isNetworkFailure(Response res) {
+    final code = res.statusCode ?? 0;
+    if (code == 0) return true;
+    final status = res.statusText?.toLowerCase() ?? '';
+    return code < 0 || status.contains('socket') || status.contains('network');
   }
 }
 `;

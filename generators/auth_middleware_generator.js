@@ -36,12 +36,14 @@ class AuthMiddleware extends GetMiddleware {
     if (!requireAuth) return null;
 
     final auth = Get.find<AuthService>();
-    // Quick, synchronous check. Splash/login sequences handle refresh/bootstrap separately.
     if (auth.isAuthenticated) {
       return null;
     }
 
-    // Not authenticated: send to login.
+    if (route != null && route.isNotEmpty && route != loginRoute) {
+      auth.setPendingRoute(route);
+    }
+
     return RouteSettings(name: loginRoute);
   }
 

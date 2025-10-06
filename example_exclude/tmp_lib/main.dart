@@ -38,6 +38,8 @@ Future<void> main() async {
   final columnPrefs = Get.put(ColumnPreferencesService(), permanent: true);
   await columnPrefs.init();
   registerAllColumnPreferences(columnPrefs);
+  final auth = Get.find<AuthService>();
+  await auth.bootstrap();
   if (!Get.isRegistered<SyncService>()) Get.put(SyncService(), permanent: true);
 
   runApp(const FHipsterApp());
