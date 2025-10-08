@@ -276,8 +276,8 @@ ${gridCols}
                         : () async {
                             if (_formKey.currentState?.validate() ?? false) {
                               final ok = await controller.submitForm();
-                              if (ok && (Get.isDialogOpen ?? false)) {
-                                Get.back<bool>(result: true);
+                              if (ok) {
+                                Navigator.of(context).pop(true);
                               }
                             }
                           },

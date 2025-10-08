@@ -446,9 +446,9 @@ ${navItems}
                   ),
                 ),
                 FilledButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
                     controller.beginCreate();
-                    _openFormDialog(context, title: 'Create ${entityName}');
+                    await _openFormDialog(context, title: 'Create ${entityName}');
                   },
                   icon: const Icon(Icons.add),
                   label: Text('New'.tr),
@@ -650,9 +650,9 @@ ${navItems}
         IconButton(
           tooltip: 'Edit'.tr,
           icon: const Icon(Icons.edit),
-          onPressed: () {
+          onPressed: () async {
             controller.beginEdit(m);
-            _openFormDialog(context, title: 'Edit ${entityName}');
+            await _openFormDialog(context, title: 'Edit ${entityName}');
           },
         ),
         IconButton(
@@ -902,7 +902,6 @@ ${childRelInfos.map(info => `
     if (saved == true) {
       await ctrl.loadPage(ctrl.page.value);
       await controller.loadPage(controller.page.value);
-      Get.snackbar('Success'.tr, 'Record updated'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
       return true;
     }
     return false;
@@ -954,7 +953,6 @@ ${childRelInfos.map(info => `
     if (saved == true) {
       await ctrl.loadPage(ctrl.page.value);
       await controller.loadPage(controller.page.value);
-      Get.snackbar('Success'.tr, 'Record created'.tr, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
       return true;
     }
     return false;
