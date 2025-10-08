@@ -25,6 +25,8 @@ const { generateSyncServiceTemplate } = require('../generators/sync_service_gene
 const { generateSamplePubspec } = require('../generators/pubspec_generator');
 
 const { generateAppShellTemplate } = require('../generators/app_shell_generator');
+const { generateNavigationSidebarTemplate } = require('../generators/navigation_sidebar_generator');
+const { generateNavigationDestinationsTemplate } = require('../generators/navigation_destinations_generator');
 const { generateAppThemeTemplate } = require('../generators/theme_generator');
 const { generateRoutesTemplate } = require('../generators/routes_generator');
 
@@ -193,6 +195,7 @@ function main() {
     writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
 
     writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
+    writeFile(path.join(dirs.widgetsDir, 'navigation_sidebar.dart'), generateNavigationSidebarTemplate(), force, 'widgets/navigation_sidebar.dart');
     writeFile(
       path.join(dirs.coreThemeDir, 'app_theme.dart'),
       generateAppThemeTemplate(),
@@ -282,6 +285,8 @@ function main() {
     icon: 'Icons.view_column_outlined',
     selectedIcon: 'Icons.view_column',
   });
+
+  writeFile(path.join(dirs.coreDir, 'navigation_destinations.dart'), generateNavigationDestinationsTemplate(navRoutes), force, 'core/navigation_destinations.dart');
 
   const generatedServiceEntities = new Set();
   if (entities) {

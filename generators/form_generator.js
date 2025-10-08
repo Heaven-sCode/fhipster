@@ -81,11 +81,12 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
     const label = labelize(n);
 
     // Category selection
+    const isDate = isDateType(f.type, parsedEnums);
     const cat =
       f.isRelationship ? 'rel'
       : isEnumType(f.type, parsedEnums) ? 'enum'
       : isBooleanType(f.type, parsedEnums) ? 'bool'
-      : isDateType(f.type, parsedEnums) ? 'date'
+      : isDate ? (f.type === 'LocalDate' ? 'date' : 'datetime')
       : isNumericType(f.type, parsedEnums) ? 'number'
       : (jdlToDartType(f.type, parsedEnums) === 'Map<String, dynamic>' ? 'json' : 'string');
 
@@ -120,11 +121,60 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
 
     if (cat === 'date') {
       widgetExpr = `
-            FHipsterInputField(
+            TextFormField(
               controller: controller.${n}Ctrl,
-              label: '${label}'.tr,
-              hint: 'YYYY-MM-DDTHH:MM:SSZ'.tr,
-              keyboardType: TextInputType.datetime,
+              decoration: InputDecoration(
+                labelText: '${label}'.tr,
+                hintText: 'YYYY-MM-DD'.tr,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.calendar_today),
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(1900),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) {
+                      controller.${n}Ctrl.text = picked.toIso8601String().split('T').first;
+                    }
+                  },
+                ),
+              ),
+              validator: ${f.required ? `(v) => (v == null || v.isEmpty) ? 'Please enter ${label.toLowerCase()}'.tr : null` : `null`},
+            )`;
+      return wrapInGridCol(widgetExpr);
+    }
+
+    if (cat === 'datetime') {
+      widgetExpr = `
+            TextFormField(
+              controller: controller.${n}Ctrl,
+              decoration: InputDecoration(
+                labelText: '${label}'.tr,
+                hintText: 'YYYY-MM-DDTHH:MM:SSZ'.tr,
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.calendar_today),
+                  onPressed: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(1900),
+                      lastDate: DateTime(2100),
+                    );
+                    if (date != null) {
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.now(),
+                      );
+                      if (time != null) {
+                        final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+                        controller.${n}Ctrl.text = dt.toIso8601String();
+                      }
+                    }
+                  },
+                ),
+              ),
               validator: (v) {
                 ${f.required ? `if (v == null || v.isEmpty) return 'Please enter ${label.toLowerCase()}'.tr;` : ''}
                 if (v != null && v.isNotEmpty) {

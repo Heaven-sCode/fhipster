@@ -49,7 +49,6 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
   const enableSQLite = !!options.enableSQLite;
-  const navItems = navDestinationsString(options.navRoutes || []);
   const parsedEnums = options.enums || {};
   const fieldTypes = fields.map((f) => ({
     field: f,
@@ -374,9 +373,6 @@ ${columnSpecEntries}
 
     return AppShell(
       title: _title,
-      navDestinations: const [
-${navItems}
-      ],
       body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;

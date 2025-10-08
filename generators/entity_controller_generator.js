@@ -102,7 +102,8 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     const cat = categorizeField(f, parsedEnums);
     if (cat === 'bool') return `    ${n}.value = m?.${n} ?? false;`;
     if (cat === 'enum') return `    ${n}.value = m?.${n};`;
-    if (cat === 'date') return `    ${n}Ctrl.text = m?.${n}?.toIso8601String() ?? '';`;
+    if (cat === 'date') return `    ${n}Ctrl.text = m?.${n}?.toIso8601String().split('T').first ?? '';`;
+    if (cat === 'datetime') return `    ${n}Ctrl.text = m?.${n}?.toIso8601String() ?? '';`;
     return `    ${n}Ctrl.text = m?.${n}?.toString() ?? '';`;
   }).join('\n');
 
@@ -114,6 +115,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     const n = f.name;
     if (tenantEnabled && n === tenantFieldName) return `      ${n}: _editing.value?.${n},`;
     if (n === 'id') return `      id: _editing.value?.id,`;
+    if (f.isAudit) return `      ${n}: _editing.value?.${n},`;
     if (f.isRelationship) {
       const t = (f.relationshipType || '').toLowerCase();
       if (t === 'onetomany' || t === 'manytomany') {
@@ -131,7 +133,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
       return `      ${n}: ${n}.value,`;
     }
     if (cat === 'date') {
-      return `      ${n}: ${n}Ctrl.text.isEmpty ? null : DateTime.tryParse(${n}Ctrl.text),`;
+      return `      ${n}: ${n}Ctrl.text.isEmpty ? null : DateTime.tryParse(${n}Ctrl.text!),`;
     }
     if (cat === 'number') {
       const dart = jdlToDartType(f.type, parsedEnums);
@@ -141,7 +143,11 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     if (cat === 'json') {
       return `      ${n}: ${n}Ctrl.text.isEmpty ? null : _tryParseJson(${n}Ctrl.text),`;
     }
-    return `      ${n}: ${n}Ctrl.text.isEmpty ? null : ${n}Ctrl.text,`;
+    const dartType = jdlToDartType(f.type, parsedEnums);
+    if (dartType === 'DateTime') {
+      return `      ${n}: ${n}Ctrl.text.isEmpty ? null : DateTime.tryParse(${n}Ctrl.text!),`;
+    }
+    return `      ${n}: ${n}Ctrl.text.isEmpty ? null : ${n}Ctrl.text!,`;
   }).join('\n');
 
   // clear form
@@ -449,7 +455,7 @@ function categorizeField(f, parsedEnums) {
   if (f.isRelationship) return 'rel';
   if (isEnumType(f.type, parsedEnums)) return 'enum';
   if (isBooleanType(f.type, parsedEnums)) return 'bool';
-  if (isDateType(f.type, parsedEnums)) return 'date';
+  if (isDateType(f.type, parsedEnums)) return f.type === 'LocalDate' ? 'date' : 'datetime';
   if (isNumericType(f.type, parsedEnums)) return 'number';
   const dart = jdlToDartType(f.type, parsedEnums);
   if (dart === 'Map<String, dynamic>') return 'json';
