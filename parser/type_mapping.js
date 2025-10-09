@@ -175,4 +175,5 @@ module.exports = {
   isBlobType,
   jdlTypeCategory,
   PRIMITIVE_MAP,
+  normalizeJdlType,
 };

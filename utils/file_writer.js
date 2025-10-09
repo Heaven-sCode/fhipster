@@ -78,6 +78,13 @@ function spliceKeepRegions(newContent, oldRegions) {
 function writeFile(absPath, content, force = false, label = '') {
   const existed = fs.existsSync(absPath);
   const old = readIfExists(absPath);
+
+  // Check for user flag to avoid overwriting (always skip, even with force)
+  if (existed && old && old.trim().startsWith('// DO NOT OVERWRITE')) {
+    console.log(`  🚫 Skipped: ${absPath}  — user flagged as DO NOT OVERWRITE`);
+    return;
+  }
+
   const oldRegions = extractKeepRegions(old);
 
   let merged = content;

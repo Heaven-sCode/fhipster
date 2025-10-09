@@ -9,7 +9,7 @@
 // - toJson respects Env.get().relationshipPayloadMode (idOnly|fullObject)
 // - Includes copyWith()
 
-const { jdlToDartType } = require('../parser/type_mapping');
+const { jdlToDartType, normalizeJdlType } = require('../parser/type_mapping');
 const { toFileName } = require('../utils/naming');
 
 function lcFirst(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
@@ -80,6 +80,10 @@ function generateModelTemplate(entityName, fields, parsedEnums) {
 
     const dartType = jdlToDartType(f.type, parsedEnums);
     if (dartType === 'DateTime') {
+      const jdlType = normalizeJdlType(f.type);
+      if (jdlType === 'zoneddatetime') {
+        return `    ${n}: json['${n}'] != null ? DateTime.tryParse(json['${n}'].toString())?.toUtc() : null,`;
+      }
       return `    ${n}: json['${n}'] != null ? DateTime.tryParse(json['${n}'].toString()) : null,`;
     }
     if (dartType === 'int') {
@@ -131,7 +135,15 @@ function generateModelTemplate(entityName, fields, parsedEnums) {
     }
     const dartType = jdlToDartType(f.type, parsedEnums);
     if (dartType === 'DateTime') {
-      return `    '${n}': ${n}?.toIso8601String(),`;
+      const jdlType = normalizeJdlType(f.type);
+      if (jdlType === 'localdate') {
+        return `    '${n}': ${n} != null ? DateFormat('yyyy-MM-dd').format(${n}!.toLocal()) : null,`;
+      } else if (jdlType === 'zoneddatetime') {
+        return `    '${n}': ${n} != null ? DateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(${n}!.toUtc()) : null,`;
+      } else {
+        // For Instant and other datetime types, send as ISO with Z
+        return `    '${n}': ${n}?.toIso8601String(),`;
+      }
     }
     if (dartType === 'Duration') {
       return `    '${n}': ${n}?.inSeconds,`;
@@ -160,7 +172,8 @@ function generateModelTemplate(entityName, fields, parsedEnums) {
 /// Relationships are typed per cardinality and serialized using Env.relationshipPayloadMode.
 `;
 
-  return `${header}import '../core/env/env.dart';
+  return `${header}import 'package:intl/intl.dart';
+import '../core/env/env.dart';
 ${enumImports ? enumImports + '\n' : ''}${relImports ? relImports + '\n' : ''}
 
 class ${className} {

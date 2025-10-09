@@ -17,7 +17,7 @@ function lcFirst(s) {
   return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 }
 
-const { jdlToDartType, isBooleanType, isEnumType, isDateType, isNumericType } = require('../parser/type_mapping');
+const { jdlToDartType, isBooleanType, isEnumType, isDateType, isNumericType, normalizeJdlType } = require('../parser/type_mapping');
 const { toFileName } = require('../utils/naming');
 
 function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
@@ -455,7 +455,7 @@ function categorizeField(f, parsedEnums) {
   if (f.isRelationship) return 'rel';
   if (isEnumType(f.type, parsedEnums)) return 'enum';
   if (isBooleanType(f.type, parsedEnums)) return 'bool';
-  if (isDateType(f.type, parsedEnums)) return f.type === 'LocalDate' ? 'date' : 'datetime';
+  if (isDateType(f.type, parsedEnums)) return normalizeJdlType(f.type) === 'localdate' ? 'date' : 'datetime';
   if (isNumericType(f.type, parsedEnums)) return 'number';
   const dart = jdlToDartType(f.type, parsedEnums);
   if (dart === 'Map<String, dynamic>') return 'json';
