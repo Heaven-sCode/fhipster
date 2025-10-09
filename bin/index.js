@@ -42,6 +42,7 @@ const { generateLocalDatabaseTemplate, generateDaoTemplate } = require('../gener
 const { generateColumnPreferencesTemplate } = require('../generators/column_preferences_generator');
 const { generateColumnSettingsViewTemplate } = require('../generators/column_settings_view_generator');
 const { generateColumnPreferencesRegistryTemplate } = require('../generators/column_preferences_registry_generator');
+const { generateFilterDrawerTemplate } = require('../generators/filter_generator');
 
 const { generateLoginControllerTemplate } = require('../generators/login_controller_generator');
 const { generateLoginViewTemplate } = require('../generators/login_view_generator');
@@ -338,6 +339,9 @@ function main() {
       }
       if (shouldGen('views')) {
         writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite, navRoutes, enums }), force, `views/${viewF}`);
+      }
+      if (shouldGen('widgets')) {
+        writeFile(path.join(dirs.widgetsDir, `${entityFileBase(entityName)}_filter_drawer.dart`), generateFilterDrawerTemplate(entityName, fields, enums), force, `widgets/${entityFileBase(entityName)}_filter_drawer.dart`);
       }
 
       entityRoutes.push({

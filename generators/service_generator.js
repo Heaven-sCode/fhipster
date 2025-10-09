@@ -175,6 +175,7 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     int? page,
     int? size,
     List<String>? sort,
+    Map<String, dynamic>? filters,
   }) async {
     final params = <String>[];
     params.add('query=\$query');
@@ -183,6 +184,24 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     final sorts = sort ?? Env.get().defaultSearchSort;
     if (sorts.isNotEmpty) {
       params.addAll(sorts.map((s) => 'sort=\$s'));
+    }
+    if (filters != null) {
+      filters.forEach((field, ops) {
+        if (ops == null) return;
+        if (ops is Map) {
+          ops.forEach((op, val) {
+            if (val == null) return;
+            final key = '\${field}.\${op}';
+            if (op == 'in' && val is List) {
+              params.add('\${key}=\${val.map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).join(',')}');
+            } else {
+              params.add('\${key}=\${val.toString()}');
+            }
+          });
+        } else {
+          params.add('\${field}.equals=\${ops.toString()}');
+        }
+      });
     }
     final url = params.isEmpty ? _searchBase : '\${_searchBase}?\${params.join('&')}';
 

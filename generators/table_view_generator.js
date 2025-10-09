@@ -315,12 +315,15 @@ import '../core/preferences/column_preferences.dart';
 import '../controllers/${toFileName(entityName)}_controller.dart';
 import '../models/${toFileName(entityName)}_model.dart';
 import '../forms/${toFileName(entityName)}_form.dart';
+import '../widgets/${toFileName(entityName)}_filter_drawer.dart';
 import '../widgets/common/confirm_dialog.dart';
 ${enumImports ? enumImports + '\n' : ''}
 ${childControllerImports ? childControllerImports + '\n' : ''}${childFormImports ? childFormImports + '\n' : ''}${childServiceImports ? childServiceImports + '\n' : ''}${childModelImports ? childModelImports + '\n' : ''}${syncImport}
 
 class ${className} extends GetView<${controllerClass}> {
-  const ${className}({super.key});
+  ${className}({super.key});
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
 
   static const String _tableKey = '${toFileName(entityName)}';
   static const String _tableLabel = '${escapeDartString(labelize(entityName))}';
@@ -371,9 +374,30 @@ ${columnSpecEntries}
       }
     }
 
+    // Auto-open view dialog if viewId is set
+    ever(controller.viewId, (String? id) {
+      if (id != null) {
+        _openViewDialogForId(id).then((_) {
+          controller.viewId.value = null; // Reset after opening
+        });
+      }
+    });
+    // Check initial value
+    if (controller.viewId.value != null) {
+      _openViewDialogForId(controller.viewId.value!).then((_) {
+        controller.viewId.value = null; // Reset after opening
+      });
+    }
+
     return AppShell(
       title: _title,
-      body: Obx(() {
+      body: Scaffold(
+        key: _scaffoldKey,
+        endDrawer: ${entityName}FilterDrawer(
+          onApply: controller.applyFilters,
+          initialFilters: controller.filters,
+        ),
+        body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;
         final total = controller.total.value;
@@ -453,6 +477,11 @@ ${columnSpecEntries}
                   onPressed: isLoading ? null : () => controller.loadPage(page),
                   icon: const Icon(Icons.refresh),
                   label: Text('Refresh'.tr),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _openFilterDrawer,
+                  icon: const Icon(Icons.filter_list),
+                  label: Text('Filter'.tr),
                 ),
                 ToggleButtons(
                   borderRadius: const BorderRadius.all(Radius.circular(8)),
@@ -629,7 +658,12 @@ ${columnSpecEntries}
           ],
         );
       }),
+      ),
     );
+  }
+
+  void _openFilterDrawer() {
+    _scaffoldKey.currentState?.openEndDrawer();
   }
 
   // --------- dialogs ---------
@@ -836,6 +870,17 @@ ${columnSpecEntries}
       ),
       barrierDismissible: false,
     );
+  }
+
+  Future<void> _openViewDialogForId(String id) async {
+    try {
+      final m = await controller.service.getOne(id);
+      _openViewDialog(Get.context!, m);
+    } catch (e) {
+      if (!Get.isSnackbarOpen) {
+        Get.snackbar('Error'.tr, 'Failed to load ${entityName}'.tr);
+      }
+    }
   }
 
   void _openViewDialog(BuildContext context, ${modelClass} m) {

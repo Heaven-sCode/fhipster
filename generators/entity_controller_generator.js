@@ -218,7 +218,9 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   return `import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
+import 'dart:html' as html;
 import '../core/env/env.dart';
 ${syncImport}import '../models/${toFileName(entityName)}_model.dart';
 import '../services/${toFileName(entityName)}_service.dart';
@@ -238,6 +240,8 @@ class ${className} extends GetxController {
   final RxList<String> sort = <String>[].obs;
 
   final RxString query = ''.obs;
+  final RxMap<String, Map<String, dynamic>> filters = <String, Map<String, dynamic>>{}.obs;
+  final Rx<String?> viewId = Rx<String?>(null);
   Worker? _searchDebounce;
 
   // ===== Form state =====
@@ -248,7 +252,7 @@ ${textCtlDecls}
 ${singleRelDecls}
 ${multiRelDecls}
 
-  ${serviceClass} get _service {
+  ${serviceClass} get service {
     if (!Get.isRegistered<${serviceClass}>()) Get.put(${serviceClass}());
     return Get.find<${serviceClass}>();
   }
@@ -258,6 +262,23 @@ ${multiRelDecls}
     super.onInit();
     size.value = Env.get().defaultPageSize;
     sort.assignAll(Env.get().defaultSort);
+
+    // Parse filters from URL parameters
+    final params = Get.parameters;
+    final newFilters = <String, Map<String, dynamic>>{};
+    params.forEach((key, value) {
+      final parts = key.split('.');
+      if (parts.length == 2) {
+        final field = parts[0];
+        final op = parts[1];
+        newFilters[field] ??= {};
+        newFilters[field]![op] = value;
+      }
+    });
+    filters.assignAll(newFilters);
+
+    // Set viewId if present in route params
+    viewId.value = Get.parameters['id'];
 
     _searchDebounce = debounce(query, (_) {
       loadPage(0);
@@ -290,11 +311,12 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
       if (_searchSupported && trimmedQuery.isNotEmpty) {
         try {
           final wildcardQuery = _wildcardQuery(trimmedQuery);
-          final res = await _service.search(
+          final res = await service.search(
             query: wildcardQuery,
             page: page.value,
             size: size.value,
             sort: sort.toList(),
+            filters: filters.isNotEmpty ? filters : null,
           );
           items.assignAll(res.items);
           total.value = res.total ?? res.items.length;
@@ -312,10 +334,11 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
       }
 
       if (!loadedViaSearch) {
-        final res = await _service.listPaged(
+        final res = await service.listPaged(
           page: page.value,
           size: size.value,
           sort: sort.toList(),
+          filters: filters.isNotEmpty ? filters : null,
         );
         items.assignAll(res.items);
         total.value = res.total ?? res.items.length;
@@ -329,6 +352,23 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
 
   void applySearch(String text) {
     query.value = text;
+  }
+
+  void applyFilters(Map<String, Map<String, dynamic>> newFilters) {
+    filters.assignAll(newFilters);
+    if (kIsWeb) {
+      final query = <String, String>{};
+      filters.forEach((field, ops) {
+        ops.forEach((op, val) {
+          query['\${field}.\${op}'] = val.toString();
+        });
+      });
+      final queryString = query.isNotEmpty ? '?' + query.entries.map((e) => '\${Uri.encodeQueryComponent(e.key)}=\${Uri.encodeQueryComponent(e.value)}').join('&') : '';
+      final currentUrl = html.window.location.href;
+      final baseUrl = currentUrl.split('?')[0];
+      html.window.history.replaceState(null, '', '\$baseUrl\$queryString');
+    }
+    loadPage(0);
   }
 
   void changePageSize(int newSize) {
@@ -372,11 +412,11 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
     try {
       isSaving.value = true;
       if (_editing.value?.id == null) {
-        final created = await _service.create(model);
+        final created = await service.create(model);
         _editing.value = created;
         _info('${entityName} created');
       } else {
-        final updated = await _service.update(model);
+        final updated = await service.update(model);
         _editing.value = updated;
         _info('${entityName} updated');
       }
@@ -393,7 +433,7 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
   Future<void> deleteOne(${modelClass} m) async {
     try {
       isSaving.value = true;
-      await _service.delete(m.id);
+      await service.delete(m.id);
       _info('${entityName} deleted');
       await loadPage(page.value);
     } catch (e) {

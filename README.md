@@ -325,6 +325,7 @@ fhipster --help
 - **Generated into wrong folder** — set `outputDir: ./lib` if you want to write directly into a Flutter app.
 - **Auth errors** — verify Keycloak endpoints and client, or JWT endpoints; confirm CORS and gateway paths.
 - **Nothing changed** — files are hashed; unchanged files show as “Skipped — unchanged”. Use `--force` to rewrite.
+- **Avoid overirding screen you want** - put this comment `// DO NOT OVERWRITE` on top of the class , table view or any screen
 
 ---
 

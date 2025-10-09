@@ -37,7 +37,15 @@ function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true, i
 
     return `    GetPage(
       name: '${r.path}',
-      page: () => const ${r.viewClass}(),
+      page: () => ${r.viewClass}(),
+      binding: BindingsBuilder(() {
+        _ensureCore();
+        if (!Get.isRegistered<${r.controllerClass}>()) Get.put(${r.controllerClass}());
+      }),
+      ${mw}
+    ),\n    GetPage(
+      name: '${r.path}/:id',
+      page: () => ${r.viewClass}(),
       binding: BindingsBuilder(() {
         _ensureCore();
         if (!Get.isRegistered<${r.controllerClass}>()) Get.put(${r.controllerClass}());
