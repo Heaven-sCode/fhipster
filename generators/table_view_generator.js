@@ -443,15 +443,40 @@ ${columnSpecEntries}
 
         return Stack(
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Theme.of(context).colorScheme.surface,
+                    Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                  ],
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
             // Toolbar: search + actions
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
                 // Search box
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
@@ -504,12 +529,15 @@ ${columnSpecEntries}
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            ),
+            const SizedBox(height: 16),
 
             // Table
             Expanded(
               child: Card(
                 clipBehavior: Clip.antiAlias,
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 child: Column(
                   children: [
                     Expanded(
@@ -581,8 +609,9 @@ ${columnSpecEntries}
                                   );
                                 }
                                 return Card(
-                                  elevation: 0,
+                                  elevation: 3,
                                   clipBehavior: Clip.antiAlias,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(
                                         Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.7,
                                       ),
@@ -654,6 +683,7 @@ ${columnSpecEntries}
               ),
             ),
               ],
+            ),
             ),
           ],
         );
