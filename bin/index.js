@@ -43,6 +43,7 @@ const { generateColumnPreferencesTemplate } = require('../generators/column_pref
 const { generateColumnSettingsViewTemplate } = require('../generators/column_settings_view_generator');
 const { generateColumnPreferencesRegistryTemplate } = require('../generators/column_preferences_registry_generator');
 const { generateFilterDrawerTemplate } = require('../generators/filter_generator');
+const { generatePageTemplate } = require('../generators/page_generator');
 
 const { generateLoginControllerTemplate } = require('../generators/login_controller_generator');
 const { generateLoginViewTemplate } = require('../generators/login_view_generator');
@@ -68,6 +69,8 @@ const {
   tableViewFileName,
   enumFileName,
   resourcePlural,
+  titleCase,
+  toWords,
 } = require('../utils/naming');
 const { writeFile } = require('../utils/file_writer');
 
@@ -90,11 +93,75 @@ function main() {
     .help('h').alias('h', 'help')
     .version().alias('v', 'version')
     .epilog('FHipster — JDL → Flutter (GetX) generator')
+    .command('generate-page <pageName>', 'Generate a blank page', (yargs) => {
+      yargs.positional('pageName', {
+        describe: 'Name of the page to generate',
+        type: 'string'
+      });
+    }, (argv) => {
+      const pageName = argv.pageName;
+      const libDir = findLibDir();
+      if (!libDir) {
+        console.error('❌ Could not find lib/ directory in current or parent folders.');
+        process.exit(1);
+      }
+      const viewsDir = path.join(libDir, 'views');
+      const routesFile = path.join(libDir, 'core', 'routes.dart');
+      const navDestFile = path.join(libDir, 'core', 'navigation_destinations.dart');
+      const fileName = `${pageName.toLowerCase()}_page.dart`;
+      const className = `${pageName}Page`;
+      const routeName = `/${pageName.toLowerCase()}`;
+
+      // Generate the page
+      writeFile(path.join(viewsDir, fileName), generatePageTemplate(pageName), !!argv.force, `views/${fileName}`);
+
+      // Try to update navigation destinations
+      if (fs.existsSync(navDestFile)) {
+        try {
+          let navContent = fs.readFileSync(navDestFile, 'utf8');
+          const humanizedLabel = titleCase(toWords(pageName).join(' '));
+
+          // Check if route already exists
+          if (navContent.includes(`route: '${routeName}'`)) {
+            console.log(`ℹ️ Route '${routeName}' already exists in navigation destinations`);
+          } else {
+            // Add the new destination before the closing bracket
+            const insertPoint = navContent.lastIndexOf('];');
+            if (insertPoint !== -1) {
+              const newEntry = `  AppDestination(
+    route: '${routeName}',
+    icon: Icons.description_outlined,
+    selectedIcon: Icons.description,
+    label: '${humanizedLabel}',
+  ),`;
+              navContent = navContent.substring(0, insertPoint) + newEntry + '\n];';
+              fs.writeFileSync(navDestFile, navContent);
+              console.log(`✅ Updated navigation destinations: lib/core/navigation_destinations.dart`);
+            }
+          }
+        } catch (e) {
+          console.warn(`⚠️ Could not update navigation destinations: ${e.message}`);
+        }
+      }
+
+      console.log(`✅ Generated blank page: lib/views/${fileName}`);
+      console.log(`📝 Add this route to lib/core/routes.dart in the pages list:`);
+      console.log(`    GetPage(`);
+      console.log(`      name: '${routeName}',`);
+      console.log(`      page: () => const ${className}(),`);
+      console.log(`    ),`);
+      process.exit(0); // Exit after handling subcommand
+    })
     .argv;
 
   // YAML
   const yamlConfig = loadYamlConfig(argv.config);
 
+  // If it's a subcommand, don't require JDL/microservice
+  if (argv._[0] === 'generate-page') {
+    // Handled in the command handler
+    return;
+  }
 
   // Inputs
   const jdlFilePath = resolveJdlPath(argv._[0] || yamlConfig.jdlFile);
@@ -770,6 +837,20 @@ function resolveJdlPath(jdlFromArgOrYaml) {
     process.exit(1);
   }
   return path.resolve(process.cwd(), jdlFromArgOrYaml);
+}
+
+function findLibDir() {
+  let current = process.cwd();
+  for (let i = 0; i < 10; i++) { // limit to 10 levels up
+    const libPath = path.join(current, 'lib');
+    if (fs.existsSync(libPath)) {
+      return libPath;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break; // reached root
+    current = parent;
+  }
+  return null;
 }
 
 main();

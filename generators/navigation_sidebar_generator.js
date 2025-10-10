@@ -16,7 +16,29 @@ function generateNavigationSidebarTemplate() {
 import 'package:get/get.dart';
 import '../core/app_shell.dart'; // for AppDestination
 
-class NavigationSidebar extends StatefulWidget {
+const _wideBreakpoint = 1000.0;
+const _railMin = 72.0;
+
+int _selectedIndex(String currentRoute, List<AppDestination> items) {
+  if (items.isEmpty) return -1;
+  final exact = items.indexWhere((d) => d.route == currentRoute);
+  if (exact >= 0) {
+    return exact;
+  }
+  for (int i = 0; i < items.length; i++) {
+    if (currentRoute.startsWith(items[i].route)) {
+      return i;
+    }
+  }
+  return 0;
+}
+
+void _go(String route) {
+  if (Get.currentRoute == route) return;
+  Get.offNamedUntil(route, (r) => r.settings.name == route || r.isFirst);
+}
+
+class NavigationSidebar extends StatelessWidget {
   final List<AppDestination> destinations;
   final bool extended;
   final bool showDrawerHeader;
@@ -29,22 +51,11 @@ class NavigationSidebar extends StatefulWidget {
   });
 
   @override
-  State<NavigationSidebar> createState() => _NavigationSidebarState();
-}
-
-class _NavigationSidebarState extends State<NavigationSidebar> {
-  static const _wideBreakpoint = 1000.0;
-  static const _railMin = 72.0;
-
-  int? _lastSelectedIndex;
-
-  @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     final isWide = width >= _wideBreakpoint;
 
-    final navItems = widget.destinations;
-
+    final navItems = destinations;
     final current = Get.currentRoute.isEmpty ? '/' : Get.currentRoute;
     final selectedIndex = _selectedIndex(current, navItems);
 
@@ -53,7 +64,7 @@ class _NavigationSidebarState extends State<NavigationSidebar> {
         destinations: navItems,
         selectedIndex: selectedIndex,
         onSelect: (i) => _go(navItems[i].route),
-        extended: widget.extended,
+        extended: extended,
       );
     }
 
@@ -61,33 +72,8 @@ class _NavigationSidebarState extends State<NavigationSidebar> {
       destinations: navItems,
       selectedIndex: selectedIndex,
       onTap: (i) => _go(navItems[i].route),
-      showHeader: widget.showDrawerHeader,
+      showHeader: showDrawerHeader,
     );
-  }
-
-  int _selectedIndex(String currentRoute, List<AppDestination> items) {
-    if (items.isEmpty) return -1;
-    final exact = items.indexWhere((d) => d.route == currentRoute);
-    if (exact >= 0) {
-      _lastSelectedIndex = exact;
-      return exact;
-    }
-    for (int i = 0; i < items.length; i++) {
-      if (currentRoute.startsWith(items[i].route)) {
-        _lastSelectedIndex = i;
-        return i;
-      }
-    }
-    final cached = _lastSelectedIndex;
-    if (cached != null && cached >= 0 && cached < items.length) {
-      return cached;
-    }
-    return 0;
-  }
-
-  void _go(String route) {
-    if (Get.currentRoute == route) return;
-    Get.offNamedUntil(route, (r) => r.settings.name == route || r.isFirst);
   }
 }
 
@@ -163,7 +149,7 @@ class _NavigationRail extends StatelessWidget {
       return const SizedBox(width: 0, height: double.infinity);
     }
     return NavigationRail(
-      minWidth: _NavigationSidebarState._railMin,
+      minWidth: _railMin,
       extended: extended,
       selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
       onDestinationSelected: onSelect,

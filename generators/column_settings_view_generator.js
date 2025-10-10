@@ -1,8 +1,4 @@
-const { navDestinationsString } = require('./helpers/nav_destinations');
-
 function generateColumnSettingsViewTemplate(navRoutes = []) {
-  const navItems = navDestinationsString(navRoutes);
-
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -20,9 +16,6 @@ class ColumnSettingsView extends StatelessWidget {
     final prefs = Get.find<ColumnPreferencesService>();
     return AppShell(
       title: _title,
-      navDestinations: const [
-${navItems}
-      ],
       body: Obx(() {
         final registry = prefs.registry;
         if (registry.isEmpty) {

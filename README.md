@@ -161,6 +161,58 @@ main.dart
 
 ---
 
+## 📄 Generating Blank Pages
+
+To add a blank page to your generated app:
+
+```bash
+fhipster generate-page <PageName>
+```
+
+This creates `lib/views/<page_name>_page.dart` with a basic stateless widget.
+
+Example:
+
+```bash
+fhipster generate-page About
+```
+
+Generates `lib/views/about_page.dart`:
+
+```dart
+// Custom page - do not overwrite
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('About'.tr),
+      ),
+      body: Center(
+        child: Text('About Page'.tr),
+      ),
+    );
+  }
+}
+```
+
+And prints the route to add manually to `lib/core/routes.dart`:
+
+```
+📝 Add this route to lib/core/routes.dart in the pages list:
+    GetPage(
+      name: '/about',
+      page: () => const AboutPage(),
+    ),
+```
+
+You can then customize the page as needed. Navigate using `Get.toNamed('/about')`.
+
 ## 📦 Offline cache & background sync *(optional)*
 
 - Set `enableSQLite: true` in `fhipster.config.yaml` to generate:

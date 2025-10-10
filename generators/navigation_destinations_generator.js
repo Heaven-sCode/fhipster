@@ -4,14 +4,25 @@
 //
 // Usage: generateNavigationDestinationsTemplate(navRoutes)
 
+const { titleCase, toWords } = require('../utils/naming');
+
+function normalizeLabel(label) {
+  const words = toWords(label);
+  if (!words.length) return label;
+  return titleCase(words.join(' '));
+}
+
 function generateNavigationDestinationsTemplate(navRoutes) {
-  const destinations = navRoutes.map(route => `
+  const destinations = navRoutes.map(route => {
+    const humanizedLabel = normalizeLabel(route.label || route.path.replace(/^\/+/, ''));
+    return `
     AppDestination(
       route: '${route.path}',
       icon: Icons.table_chart_outlined,
       selectedIcon: Icons.table_chart,
-      label: '${route.label}',
-    ),`).join('');
+      label: '${humanizedLabel}',
+    ),`;
+  }).join('');
 
   return `import 'package:flutter/material.dart';
 import 'app_shell.dart';

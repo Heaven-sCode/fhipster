@@ -148,14 +148,22 @@ class _AppShellState extends State<AppShell> {
       actions: appBarActions,
     );
 
-    final navigationSidebar = NavigationSidebar(destinations: navItems);
+    final navigationSidebar = NavigationSidebar(
+      destinations: navItems,
+      extended: true,
+      showDrawerHeader: true,
+    );
 
     if (isWide) {
       return Scaffold(
         appBar: appBar,
         body: Row(
           children: [
-            if (navItems.isNotEmpty && _railVisible) navigationSidebar,
+            if (navItems.isNotEmpty && _railVisible)
+              SizedBox(
+                width: 280, // Constrain rail width
+                child: navigationSidebar,
+              ),
             if (navItems.isNotEmpty && _railVisible)
               const VerticalDivider(width: 1),
             Expanded(
