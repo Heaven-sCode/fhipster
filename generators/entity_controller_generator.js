@@ -373,7 +373,10 @@ ${primFields.filter(f => !isEnumType(f.type, parsedEnums) && !isBooleanType(f.ty
 
   void changePageSize(int newSize) {
     size.value = newSize;
-    loadPage(0);
+    // If current page would be beyond available pages with new size, go to last available page
+    final maxPage = total.value > 0 ? ((total.value - 1) ~/ newSize) : 0;
+    final targetPage = page.value > maxPage ? maxPage : 0;
+    loadPage(targetPage);
   }
 
   void changeSort(List<String> newSort) {

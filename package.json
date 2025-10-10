@@ -1,6 +1,6 @@
 {
   "name": "fhipster",
-  "version": "1.2.02",
+  "version": "1.2.7",
   "description": "Turns JHipster dreams into Flutter reality: generate GetX apps, offline-ready services, and synchronized experiences from a single JDL spell.",
   "main": "bin/index.js",
   "scripts": {

@@ -15,6 +15,7 @@ class AuthService extends GetxService {
   GetStorage? _box;
   FlutterSecureStorage? _secure;
   final GetConnect _rest = GetConnect();
+  final GetConnect _keycloakRest = GetConnect();
 
   final username = RxnString();
   final authorities = <String>[].obs;
@@ -48,6 +49,8 @@ class AuthService extends GetxService {
     _cfg = Env.get();
     _rest.httpClient.baseUrl = _cfg.apiHost;
     _rest.httpClient.timeout = const Duration(seconds: 25);
+    // _keycloakRest has no baseUrl so absolute URLs work correctly
+    _keycloakRest.httpClient.timeout = const Duration(seconds: 25);
 
     if (_cfg.storageMode == 'secure_storage') {
       _secure = const FlutterSecureStorage();
@@ -184,10 +187,10 @@ class AuthService extends GetxService {
     }
 
     final payload = _encodeForm(body);
-    final res = await _rest.post(
+    final res = await _keycloakRest.post(
       endpoint,
       payload,
-      headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+      contentType: 'application/x-www-form-urlencoded',
     );
 
     if (!res.isOk) {
@@ -238,10 +241,10 @@ class AuthService extends GetxService {
     }
 
     final payload = _encodeForm(body);
-    final res = await _rest.post(
+    final res = await _keycloakRest.post(
       endpoint,
       payload,
-      headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+      contentType: 'application/x-www-form-urlencoded',
     );
 
     if (!res.isOk) {
@@ -426,11 +429,6 @@ class AuthService extends GetxService {
     return DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true).toLocal();
   }
 
-  String _encodeForm(Map<String, String> data) {
-    return data.entries
-        .map((e) => '\${Uri.encodeQueryComponent(e.key)}=\${Uri.encodeQueryComponent(e.value)}')
-        .join('&');
-  }
 
   Future<void> _write(String key, String? value) async {
     if (value == null) return;
@@ -483,6 +481,12 @@ class AuthService extends GetxService {
     if (code == 0) return true;
     final status = res.statusText?.toLowerCase() ?? '';
     return code < 0 || status.contains('socket') || status.contains('network');
+  }
+
+  String _encodeForm(Map<String, String> data) {
+    return data.entries
+        .map((e) => '\${Uri.encodeQueryComponent(e.key)}=\${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
   }
 }
 `;
