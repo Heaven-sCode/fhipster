@@ -79,7 +79,8 @@ fhipster <jdl-file> --microservice <name> [options]
 - `-a, --apiHost` *(default: `http://localhost:8080`)*
 - `--useGateway` — use JHipster API Gateway paths (`/services/<svc>/api/**`)
 - `--gatewayServiceName <name>` — service id for gateway paths
-- `--force, -f` — **overwrite all** generated files even if unchanged  
+- `--module` — generate as module (views/services/controllers only, no auth/SQLite)
+- `--force, -f` — **overwrite all** generated files even if unchanged
   *(by default, FHipster compares content and **skips** writing if identical)*
 
 **Auth flags (dual auth)**
@@ -109,6 +110,99 @@ fhipster ./JDL/app.jdl   --microservice operationsModule   --apiHost http://234.
 # JWT backend
 fhipster ./app.jdl -m store -a https://api.example.com   --authProvider jhipsterJwt   --jwtAuthEndpoint /api/authenticate   --accountEndpoint /api/account   ./lib
 ```
+
+---
+
+## 🧩 Module Generation (Integration Mode)
+
+Use `--module` to generate a **plug-and-play module** that integrates into an existing Flutter app:
+
+```bash
+fhipster ./app.jdl -m myModule --module --outputDir ./modules/my_module
+```
+
+**What's different in module mode:**
+
+- ✅ **No auth services** — parent app handles authentication
+- ✅ **No SQLite/offline** — no local caching or sync services
+- ✅ **No main.dart** — no app entry point
+- ✅ **ModuleBridge service** — receives auth tokens from parent app
+- ✅ **Same views/controllers/services** — fully functional once tokens are provided
+
+**Integration in parent app:**
+
+```dart
+// In your main.dart or app initialization
+void main() async {
+  // ... existing setup ...
+
+  // Register module services
+  Get.put(ApiClient(isModule: true), permanent: true);
+  Get.put(ModuleBridge(), permanent: true);
+
+  // Set auth tokens from your existing auth system
+  final bridge = Get.find<ModuleBridge>();
+
+  // For JWT authentication:
+  bridge.setAuthTokens(
+    accessToken: 'your-jwt-token',
+    accessTokenExpiry: DateTime.now().add(Duration(hours: 1)),
+  );
+
+  // For Keycloak authentication:
+  bridge.setAuthTokens(
+    accessToken: keycloakTokens.accessToken,
+    refreshToken: keycloakTokens.refreshToken,
+    accessTokenExpiry: keycloakTokens.accessTokenExpiry,
+    refreshTokenExpiry: keycloakTokens.refreshTokenExpiry,
+  );
+
+  // Use generated views in your navigation
+  Get.to(() => const MyEntityTableView());
+}
+```
+
+**Token bridging details:**
+
+- **JWT**: Pass your JWT token directly as `accessToken`
+- **Keycloak**: Pass the `access_token` from Keycloak's token response
+- **Refresh tokens**: Optional, but recommended for seamless token renewal
+- **Expiry times**: Used for proactive token refresh (if your parent app handles it)
+- **Real-time updates**: Call `bridge.setAuthTokens()` whenever tokens change
+- **Logout**: Call `bridge.clearAuthTokens()` when user logs out
+
+The module automatically uses these tokens in all API calls via `Authorization: Bearer <token>` headers.
+
+**Generated structure (module mode):**
+
+```
+modules/my_module/
+  core/
+    api_client.dart          # Modified for module mode
+    module_bridge.dart       # Token bridge service
+    env/env.dart            # Still generated for config
+  controllers/
+    <entity>_controller.dart
+  services/
+    <entity>_service.dart
+  models/
+    <entity>_model.dart
+  enums/
+    <enum>_enum.dart
+  forms/
+    <entity>_form.dart
+  views/
+    <entity>_table_view.dart
+  widgets/
+    ... (shared widgets)
+```
+
+> **💡 Heads up:** Why `-m myModule --module`?
+>
+> - `-m myModule`: Sets the **microservice name** (required for API routing)
+> - `--module`: Enables **module generation mode** (skips auth/SQLite)
+>
+> Both are needed: the microservice name for proper API calls, and the module flag to change generation behavior.
 
 ---
 

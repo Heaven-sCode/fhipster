@@ -1,6 +1,8 @@
 // generators/api_client_generator.js
 
-function generateApiClientTemplate() {
+function generateApiClientTemplate(isModule = false) {
+  const conditionalImport = isModule ? "import 'module_bridge.dart';" : "";
+
   return `import 'dart:async';
 import 'dart:io';
 import 'package:get/get.dart';
@@ -9,20 +11,25 @@ import 'package:crypto/crypto.dart';
 
 import 'env/env.dart';
 import 'auth/auth_service.dart';
+${conditionalImport}
 
 /// ApiClient wraps GetConnect and:
 /// - injects Authorization header
 /// - enforces HTTPS when httpStrict=true
 /// - optional certificate pinning (SHA256 fingerprints)
+/// - supports both full app (AuthService) and module (ModuleBridge) modes
 class ApiClient extends GetConnect {
   late final EnvConfig _cfg;
-  late final AuthService _auth;
+  late final dynamic _authService; // AuthService or ModuleBridge
+  final bool _isModule;
+
+  ApiClient({bool isModule = false}) : _isModule = isModule;
 
   @override
   void onInit() {
     super.onInit();
     _cfg = Env.get();
-    _auth = Get.find<AuthService>();
+    _authService = _isModule ? Get.find() : Get.find<AuthService>();
 
     httpClient.baseUrl = _cfg.apiHost;
 
@@ -38,37 +45,39 @@ class ApiClient extends GetConnect {
       return request;
     });
 
-    // Auto-refresh on 401 then retry once
-    httpClient.addResponseModifier((get_http.Request request, response) async {
-      if (response.statusCode == 401) {
-        final ok = await _auth.tryRefreshToken();
-        if (ok) {
-          final headers = await _headers(forceFresh: true);
-          final mergedHeaders = Map<String, String>.from(request.headers)..addAll(headers);
+    // Auto-refresh on 401 then retry once (only for full app mode)
+    if (!_isModule) {
+      httpClient.addResponseModifier((get_http.Request request, response) async {
+        if (response.statusCode == 401) {
+          final ok = await _authService.tryRefreshToken();
+          if (ok) {
+            final headers = await _headers(forceFresh: true);
+            final mergedHeaders = Map<String, String>.from(request.headers)..addAll(headers);
 
-          List<int>? body;
-          final stream = request.bodyBytes;
-          if (stream != null) {
-            final buffer = <int>[];
-            await for (final chunk in stream) {
-              buffer.addAll(chunk);
+            List<int>? body;
+            final stream = request.bodyBytes;
+            if (stream != null) {
+              final buffer = <int>[];
+              await for (final chunk in stream) {
+                buffer.addAll(chunk);
+              }
+              if (buffer.isNotEmpty) {
+                body = buffer;
+              }
             }
-            if (buffer.isNotEmpty) {
-              body = buffer;
-            }
+
+            return httpClient.request(
+              request.url.toString(),
+              request.method,
+              body: body,
+              headers: mergedHeaders,
+              query: request.url.queryParameters,
+            );
           }
-
-          return httpClient.request(
-            request.url.toString(),
-            request.method,
-            body: body,
-            headers: mergedHeaders,
-            query: request.url.queryParameters,
-          );
         }
-      }
-      return response;
-    });
+        return response;
+      });
+    }
 
     // Optional: certificate pinning
     if (_cfg.pinnedSha256Certs.isNotEmpty) {
@@ -76,11 +85,42 @@ class ApiClient extends GetConnect {
     }
   }
 
+  /// Set auth tokens (used by ModuleBridge in module mode)
+  void setAuthTokens({
+    String? accessToken,
+    String? refreshToken,
+    DateTime? accessTokenExpiry,
+    DateTime? refreshTokenExpiry,
+  }) {
+    if (!_isModule) return; // Only applicable in module mode
+
+    _authService.setAuthTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      accessTokenExpiry: accessTokenExpiry,
+      refreshTokenExpiry: refreshTokenExpiry,
+    );
+  }
+
+  /// Clear auth tokens (used by ModuleBridge in module mode)
+  void clearAuthTokens() {
+    if (!_isModule) return; // Only applicable in module mode
+
+    _authService.clearAuthTokens();
+  }
+
   Future<Map<String, String>> _headers({bool forceFresh = false}) async {
     final h = <String, String>{
       'Accept': 'application/json',
     };
-    final token = await _auth.getAccessToken(forceFresh: forceFresh);
+
+    String? token;
+    if (_isModule) {
+      token = _authService.accessToken;
+    } else {
+      token = await _authService.getAccessToken(forceFresh: forceFresh);
+    }
+
     if (token != null && token.isNotEmpty) {
       h['Authorization'] = 'Bearer \$token';
     }

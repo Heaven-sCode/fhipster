@@ -16,6 +16,7 @@ const { hideBin } = require('yargs/helpers');
 // ---- Generators ----
 const { generateEnvTemplate } = require('../generators/env_generator');
 const { generateApiClientTemplate } = require('../generators/api_client_generator');
+const { generateModuleBridgeTemplate } = require('../generators/module_bridge_generator');
 const { generateAuthServiceTemplate } = require('../generators/auth_service_generator');
 const { generateAuthMiddlewareTemplate } = require('../generators/auth_middleware_generator');
 const { generateRoleMiddlewareTemplate } = require('../generators/role_middleware_generator');
@@ -89,6 +90,7 @@ function main() {
     .option('only', { type: 'string', describe: 'Only generate these entities (comma-separated)' })
     .option('skipParts', { type: 'string', describe: 'Skip parts: models,services,controllers,forms,views,enums,core,widgets,routes,main' })
     .option('debugRelationships', { type: 'string', describe: 'Comma-separated entity names to print relationship metadata for ("*" for all)' })
+    .option('module', { type: 'boolean', default: false, describe: 'Generate as module (views/services/controllers only, no auth/SQLite)' })
     .option('force', { alias: 'f', type: 'boolean', default: false, describe: 'Overwrite existing files' })
     .help('h').alias('h', 'help')
     .version().alias('v', 'version')
@@ -180,18 +182,28 @@ function main() {
                   : (yamlConfig.emitMain ?? false);
 
   const force = !!argv.force;
+  const isModule = !!argv.module;
 
   // Partial gen flags
   const onlyEntities = parseCsv(argv.only || yamlConfig.only);
   const skipParts = new Set(parseCsv(argv.skipParts || yamlConfig.skipParts));
   const debugRelationships = parseCsv(argv.debugRelationships);
+
+  // In module mode, skip auth, SQLite, main, and app-specific core components
+  if (isModule) {
+    skipParts.add('auth');
+    skipParts.add('sqlite');
+    skipParts.add('main');
+    skipParts.add('core');
+  }
+
   const shouldGen = (part) => !skipParts.has(part);
   const entityAllowed = (name) =>
     !onlyEntities.length || onlyEntities.map(s => s.toLowerCase()).includes(String(name).toLowerCase());
 
   // Build profiles from YAML
   const { devProfile, prodProfile } = buildProfilesFromYaml(yamlConfig, argv);
-  const enableSQLite = pick(argv.enableSQLite, yamlConfig.enableSQLite, true);
+  const enableSQLite = isModule ? false : pick(argv.enableSQLite, yamlConfig.enableSQLite, true);
 
   if (!fs.existsSync(jdlFilePath)) {
     console.error(`❌ JDL file not found at '${jdlFilePath}'`);
@@ -256,8 +268,12 @@ function main() {
       'core/env/env.dart'
     );
 
-    writeFile(path.join(dirs.coreDir, 'api_client.dart'), generateApiClientTemplate(), force, 'core/api_client.dart');
-    writeFile(path.join(dirs.coreAuthDir, 'auth_service.dart'), generateAuthServiceTemplate(), force, 'core/auth/auth_service.dart');
+    writeFile(path.join(dirs.coreDir, 'api_client.dart'), generateApiClientTemplate(isModule), force, 'core/api_client.dart');
+    if (isModule) {
+      writeFile(path.join(dirs.coreDir, 'module_bridge.dart'), generateModuleBridgeTemplate(), force, 'core/module_bridge.dart');
+    } else {
+      writeFile(path.join(dirs.coreAuthDir, 'auth_service.dart'), generateAuthServiceTemplate(), force, 'core/auth/auth_service.dart');
+    }
     writeFile(path.join(dirs.coreAuthDir, 'auth_middleware.dart'), generateAuthMiddlewareTemplate(), force, 'core/auth/auth_middleware.dart');
     writeFile(path.join(dirs.coreAuthDir, 'role_middleware.dart'), generateRoleMiddlewareTemplate(), force, 'core/auth/role_middleware.dart');
     writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
@@ -482,11 +498,23 @@ function main() {
   }
 
   console.log('\n✅ Generation complete!');
-  console.log("Next steps:");
-  console.log("1) In Flutter: flutter pub add get get_storage responsive_grid");
-  console.log("   (Optional security) flutter pub add flutter_secure_storage crypto");
-  console.log("2) Run app: flutter run -t lib/main.dart --dart-define=ENV=dev");
-  console.log(`3) Generated at: '${outputDir}'`);
+  if (isModule) {
+    console.log("Module generation complete!");
+    console.log("Next steps:");
+    console.log("1) In Flutter: flutter pub add get responsive_grid");
+    console.log("2) Initialize the module in your parent app:");
+    console.log("   - Register services: Get.put(ApiClient(isModule: true));");
+    console.log("   - Register bridge: Get.put(ModuleBridge());");
+    console.log("   - Set auth tokens: Get.find<ModuleBridge>().setAuthTokens(accessToken: 'token');");
+    console.log("3) Use the generated views in your app's navigation");
+    console.log(`4) Generated at: '${outputDir}'`);
+  } else {
+    console.log("Next steps:");
+    console.log("1) In Flutter: flutter pub add get get_storage responsive_grid");
+    console.log("   (Optional security) flutter pub add flutter_secure_storage crypto");
+    console.log("2) Run app: flutter run -t lib/main.dart --dart-define=ENV=dev");
+    console.log(`3) Generated at: '${outputDir}'`);
+  }
 }
 
 // ---------- Profiles ----------
