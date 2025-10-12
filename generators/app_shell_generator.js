@@ -18,12 +18,14 @@
 //     body: ...,
 //   );
 
-function generateAppShellTemplate() {
+function generateAppShellTemplate(isModule = false) {
+  const authImport = isModule ? "" : "import 'auth/auth_service.dart';";
+  const navigationSidebarImport = isModule ? "" : "import '../widgets/navigation_sidebar.dart';\n";
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'auth/auth_service.dart';
+${authImport}
 import 'navigation_destinations.dart';
-import '../widgets/navigation_sidebar.dart';
+${navigationSidebarImport}
 
 @immutable
 class AppDestination {
@@ -148,7 +150,84 @@ class _AppShellState extends State<AppShell> {
       actions: appBarActions,
     );
 
-    final navigationSidebar = NavigationSidebar(
+    ${isModule ? `if (isWide) {
+      return Scaffold(
+        appBar: appBar,
+        body: Row(
+          children: [
+            if (navItems.isNotEmpty && _railVisible)
+              NavigationRail(
+                minWidth: 72.0,
+                extended: true,
+                selectedIndex: 0,
+                onDestinationSelected: (i) => _go(navItems[i].route),
+                labelType: NavigationRailLabelType.none,
+                destinations: navItems
+                    .map((d) => NavigationRailDestination(
+                          icon: Icon(d.icon),
+                          selectedIcon: d.selectedIcon != null ? Icon(d.selectedIcon) : null,
+                          label: Text(d.label),
+                        ))
+                    .toList(),
+              ),
+            if (navItems.isNotEmpty && _railVisible)
+              const VerticalDivider(width: 1),
+            Expanded(
+              child: SafeArea(
+                child: Padding(
+                  padding: widget.bodyPadding,
+                  child: widget.body,
+                ),
+              ),
+            ),
+          ],
+        ),
+        floatingActionButton: widget.floatingActionButton,
+      );
+    }
+
+    return Scaffold(
+      appBar: appBar,
+      drawer: navItems.isEmpty ? null : Drawer(
+        width: 360,
+        child: SafeArea(
+          child: ListView.builder(
+            itemCount: navItems.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return DrawerHeader(
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Text(
+                      'Menu',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  ),
+                );
+              }
+              final i = index - 1;
+              final d = navItems[i];
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+                leading: Icon(d.icon),
+                title: Text(d.label),
+                onTap: () {
+                  Navigator.of(context).maybePop();
+                  _go(d.route);
+                },
+              );
+            },
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: widget.bodyPadding,
+          child: widget.body,
+        ),
+      ),
+      floatingActionButton: widget.floatingActionButton,
+    );` : `final navigationSidebar = NavigationSidebar(
       destinations: navItems,
       extended: true,
       showDrawerHeader: true,
@@ -190,7 +269,7 @@ class _AppShellState extends State<AppShell> {
         ),
       ),
       floatingActionButton: widget.floatingActionButton,
-    );
+    );`}
   }
 
 }

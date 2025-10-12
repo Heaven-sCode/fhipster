@@ -17,6 +17,7 @@ const { hideBin } = require('yargs/helpers');
 const { generateEnvTemplate } = require('../generators/env_generator');
 const { generateApiClientTemplate } = require('../generators/api_client_generator');
 const { generateModuleBridgeTemplate } = require('../generators/module_bridge_generator');
+const { generateModuleInitTemplate } = require('../generators/module_init_generator');
 const { generateAuthServiceTemplate } = require('../generators/auth_service_generator');
 const { generateAuthMiddlewareTemplate } = require('../generators/auth_middleware_generator');
 const { generateRoleMiddlewareTemplate } = require('../generators/role_middleware_generator');
@@ -258,6 +259,23 @@ function main() {
   console.log(`🧩 Profiles: dev → ${devProfile.apiHost} | prod → ${prodProfile.apiHost}\n`);
 
   // Core / Env / Auth
+  // Always generate essential files needed by controllers and views
+  if (!shouldGen('core')) {
+    console.log('• Generating essential core files (env, preferences) ...');
+    writeFile(
+      path.join(dirs.coreDir, 'env', 'env.dart'),
+      generateEnvTemplate({ devProfile, prodProfile }),
+      force,
+      'core/env/env.dart'
+    );
+    writeFile(
+      path.join(dirs.corePreferencesDir, 'column_preferences.dart'),
+      generateColumnPreferencesTemplate(),
+      force,
+      'core/preferences/column_preferences.dart'
+    );
+  }
+
   if (shouldGen('core')) {
     console.log('• Generating core/env/auth ...');
 
@@ -271,15 +289,20 @@ function main() {
     writeFile(path.join(dirs.coreDir, 'api_client.dart'), generateApiClientTemplate(isModule), force, 'core/api_client.dart');
     if (isModule) {
       writeFile(path.join(dirs.coreDir, 'module_bridge.dart'), generateModuleBridgeTemplate(), force, 'core/module_bridge.dart');
+      writeFile(path.join(dirs.coreDir, 'module_init.dart'), generateModuleInitTemplate(entities ? Object.keys(entities) : []), force, 'core/module_init.dart');
     } else {
       writeFile(path.join(dirs.coreAuthDir, 'auth_service.dart'), generateAuthServiceTemplate(), force, 'core/auth/auth_service.dart');
+      writeFile(path.join(dirs.coreAuthDir, 'auth_middleware.dart'), generateAuthMiddlewareTemplate(), force, 'core/auth/auth_middleware.dart');
+      writeFile(path.join(dirs.coreAuthDir, 'role_middleware.dart'), generateRoleMiddlewareTemplate(), force, 'core/auth/role_middleware.dart');
+      writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
     }
-    writeFile(path.join(dirs.coreAuthDir, 'auth_middleware.dart'), generateAuthMiddlewareTemplate(), force, 'core/auth/auth_middleware.dart');
-    writeFile(path.join(dirs.coreAuthDir, 'role_middleware.dart'), generateRoleMiddlewareTemplate(), force, 'core/auth/role_middleware.dart');
-    writeFile(path.join(dirs.coreAuthDir, 'token_decoder.dart'), generateTokenDecoderTemplate(), force, 'core/auth/token_decoder.dart');
 
-    writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(), force, 'core/app_shell.dart');
-    writeFile(path.join(dirs.widgetsDir, 'navigation_sidebar.dart'), generateNavigationSidebarTemplate(), force, 'widgets/navigation_sidebar.dart');
+    if (!isModule) {
+      writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(isModule), force, 'core/app_shell.dart');
+      writeFile(path.join(dirs.widgetsDir, 'navigation_sidebar.dart'), generateNavigationSidebarTemplate(), force, 'widgets/navigation_sidebar.dart');
+    } else {
+      writeFile(path.join(dirs.coreDir, 'app_shell.dart'), generateAppShellTemplate(isModule), force, 'core/app_shell.dart');
+    }
     writeFile(
       path.join(dirs.coreThemeDir, 'app_theme.dart'),
       generateAppThemeTemplate(),
@@ -299,6 +322,14 @@ function main() {
       force,
       'core/connectivity/connectivity_service.dart'
     );
+  }
+
+  // Module essentials (always generate in module mode, even if core is skipped)
+  if (isModule && !shouldGen('core')) {
+    console.log('• Generating module essentials ...');
+    writeFile(path.join(dirs.coreDir, 'module_bridge.dart'), generateModuleBridgeTemplate(), force, 'core/module_bridge.dart');
+    writeFile(path.join(dirs.coreDir, 'module_init.dart'), generateModuleInitTemplate(entities ? Object.keys(entities) : []), force, 'core/module_init.dart');
+    writeFile(path.join(dirs.coreDir, 'api_client.dart'), generateApiClientTemplate(isModule), force, 'core/api_client.dart');
   }
 
   const generatedDaoEntities = new Set();
@@ -328,6 +359,17 @@ function main() {
   }
 
   // Widgets
+  // Always generate essential widgets needed by views and forms
+  if (!shouldGen('widgets')) {
+    console.log('• Generating essential widgets ...');
+    writeFile(path.join(dirs.widgetsDir, 'fhipster_input_field.dart'), generateFHipsterInputFieldTemplate(), force, 'widgets/fhipster_input_field.dart');
+
+    const tableWidgetFiles = generateTableWidgetsTemplates();
+    Object.entries(tableWidgetFiles).forEach(([relPath, content]) => {
+      writeFile(path.join(dirs.widgetsDir, relPath), content, force, path.join('widgets', relPath));
+    });
+  }
+
   if (shouldGen('widgets')) {
     console.log('• Generating common widgets ...');
     writeFile(path.join(dirs.widgetsDir, 'fhipster_input_field.dart'), generateFHipsterInputFieldTemplate(), force, 'widgets/fhipster_input_field.dart');
@@ -370,7 +412,9 @@ function main() {
     selectedIcon: 'Icons.view_column',
   });
 
-  writeFile(path.join(dirs.coreDir, 'navigation_destinations.dart'), generateNavigationDestinationsTemplate(navRoutes), force, 'core/navigation_destinations.dart');
+  if (!isModule) {
+    writeFile(path.join(dirs.coreDir, 'navigation_destinations.dart'), generateNavigationDestinationsTemplate(navRoutes), force, 'core/navigation_destinations.dart');
+  }
 
   const generatedServiceEntities = new Set();
   if (entities) {
@@ -381,9 +425,9 @@ function main() {
       }
 
       const modelF = modelFileName(entityName);
-      const serviceF = serviceFileName(entityName);
-      const controllerF = controllerFileName(entityName);
-      const formF = formFileName(entityName);
+      const serviceF = serviceFileName(entityName, isModule);
+      const controllerF = controllerFileName(entityName, isModule);
+      const formF = formFileName(entityName, isModule);
       const viewF = tableViewFileName(entityName);
 
       const tenantIsolation = {
@@ -408,6 +452,7 @@ function main() {
             useGateway: !!devProfile.useGateway,
             tenantIsolation,
             enableSQLite,
+            isModule,
           }),
           force,
           `services/${serviceF}`
@@ -415,13 +460,13 @@ function main() {
         generatedServiceEntities.add(entityName);
       }
       if (shouldGen('controllers')) {
-        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums, { tenantIsolation, enableSQLite }), force, `controllers/${controllerF}`);
+        writeFile(path.join(dirs.controllersDir, controllerF), generateEntityControllerTemplate(entityName, fields, enums, { tenantIsolation, enableSQLite, isModule }), force, `controllers/${controllerF}`);
       }
       if (shouldGen('forms')) {
-        writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums, { tenantIsolation }), force, `forms/${formF}`);
+        writeFile(path.join(dirs.formsDir, formF), generateFormTemplate(entityName, fields, enums, { tenantIsolation, isModule }), force, `forms/${formF}`);
       }
       if (shouldGen('views')) {
-        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite, navRoutes, enums }), force, `views/${viewF}`);
+        writeFile(path.join(dirs.viewsDir, viewF), generateTableViewTemplate(entityName, fields, entities, { enableSQLite, navRoutes, enums, isModule }), force, `views/${viewF}`);
       }
       if (shouldGen('widgets')) {
         writeFile(path.join(dirs.widgetsDir, `${entityFileBase(entityName)}_filter_drawer.dart`), generateFilterDrawerTemplate(entityName, fields, enums), force, `widgets/${entityFileBase(entityName)}_filter_drawer.dart`);
@@ -456,19 +501,21 @@ function main() {
   if (shouldGen('views') || shouldGen('controllers')) {
     console.log('• Generating static views/controllers ...');
 
-    if (shouldGen('controllers')) {
+    if (shouldGen('controllers') && !isModule) {
       writeFile(path.join(dirs.controllersDir, 'splash_controller.dart'), generateSplashControllerTemplate(), force, 'controllers/splash_controller.dart');
       writeFile(path.join(dirs.controllersDir, 'login_controller.dart'), generateLoginControllerTemplate(), force, 'controllers/login_controller.dart');
     }
     if (shouldGen('views')) {
-      writeFile(path.join(dirs.viewsDir, 'splash_view.dart'), generateSplashViewTemplate(), force, 'views/splash_view.dart');
-      writeFile(path.join(dirs.viewsDir, 'login_view.dart'), generateLoginViewTemplate(), force, 'views/login_view.dart');
-      writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(), force, 'views/home_view.dart');
-      writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
-      writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
+      if (!isModule) {
+        writeFile(path.join(dirs.viewsDir, 'splash_view.dart'), generateSplashViewTemplate(), force, 'views/splash_view.dart');
+        writeFile(path.join(dirs.viewsDir, 'login_view.dart'), generateLoginViewTemplate(), force, 'views/login_view.dart');
+        writeFile(path.join(dirs.viewsDir, 'home_view.dart'), generateHomeViewTemplate(), force, 'views/home_view.dart');
+        writeFile(path.join(dirs.viewsDir, 'unauthorized_view.dart'), generateUnauthorizedViewTemplate(), force, 'views/unauthorized_view.dart');
+        writeFile(path.join(dirs.viewsDir, 'forbidden_view.dart'), generateForbiddenViewTemplate(), force, 'views/forbidden_view.dart');
+      }
       writeFile(
         path.join(dirs.viewsSettingsDir, 'column_settings_view.dart'),
-        generateColumnSettingsViewTemplate(navRoutes),
+        generateColumnSettingsViewTemplate(navRoutes, isModule),
         force,
         'views/settings/column_settings_view.dart'
       );
@@ -482,13 +529,25 @@ function main() {
   }
 
   // Routes
-  if (shouldGen('routes')) {
-    writeFile(
-      path.join(dirs.coreDir, 'routes.dart'),
-      generateRoutesTemplate({ entityRoutes, includeAuthGuards, includeColumnSettings: shouldGen('views') }),
-      force,
-      'core/routes.dart'
-    );
+  if (!isModule) {
+    if (!shouldGen('routes')) {
+      // Generate minimal routes for modules (no auth guards)
+      writeFile(
+        path.join(dirs.coreDir, 'routes.dart'),
+        generateRoutesTemplate({ entityRoutes, includeAuthGuards: false, includeColumnSettings: false }),
+        force,
+        'core/routes.dart'
+      );
+    }
+
+    if (shouldGen('routes')) {
+      writeFile(
+        path.join(dirs.coreDir, 'routes.dart'),
+        generateRoutesTemplate({ entityRoutes, includeAuthGuards, includeColumnSettings: shouldGen('views') }),
+        force,
+        'core/routes.dart'
+      );
+    }
   }
 
   // main.dart
@@ -500,14 +559,19 @@ function main() {
   console.log('\n✅ Generation complete!');
   if (isModule) {
     console.log("Module generation complete!");
+    console.log("⚠️  IMPORTANT: Call ModuleInit.registerServices() BEFORE using any module views!");
     console.log("Next steps:");
     console.log("1) In Flutter: flutter pub add get responsive_grid");
-    console.log("2) Initialize the module in your parent app:");
-    console.log("   - Register services: Get.put(ApiClient(isModule: true));");
-    console.log("   - Register bridge: Get.put(ModuleBridge());");
-    console.log("   - Set auth tokens: Get.find<ModuleBridge>().setAuthTokens(accessToken: 'token');");
-    console.log("3) Use the generated views in your app's navigation");
-    console.log(`4) Generated at: '${outputDir}'`);
+    console.log("2) Initialize the module in your parent app (do this early, e.g., in main()):");
+    console.log("   import 'package:your_module/core/env/env.dart';");
+    console.log("   import 'package:your_module/core/module_init.dart';");
+    console.log("   Env.initGenerated();");
+    console.log("   Env.setProfile('dev'); // or 'prod'");
+    console.log("   ModuleInit.registerServices();  // ⚠️ REQUIRED before using module!");
+    console.log("3) Set auth tokens after user login:");
+    console.log("   ModuleInit.setAuthTokens(accessToken: 'token', refreshToken: 'refresh');");
+    console.log("4) Use the generated views in your app's navigation");
+    console.log(`5) Generated at: '${outputDir}'`);
   } else {
     console.log("Next steps:");
     console.log("1) In Flutter: flutter pub add get get_storage responsive_grid");

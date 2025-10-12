@@ -23,9 +23,10 @@ const { toFileName } = require('../utils/naming');
 function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
 
 function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, options = {}) {
-  const className = `${entityName}Controller`;
+  const isModule = !!options.isModule;
+  const className = isModule ? `${entityName}ModuleController` : `${entityName}Controller`;
   const modelClass = `${entityName}Model`;
-  const serviceClass = `${entityName}Service`;
+  const serviceClass = isModule ? `${entityName}ModuleService` : `${entityName}Service`;
   const instance = lcFirst(entityName);
 
   const tenantIsolation = options.tenantIsolation || {};
@@ -51,7 +52,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
 
   // Collect imports for related models & services
   const relModelImports = Array.from(new Set(rels.map(r => `import '../models/${toFileName(r.targetEntity)}_model.dart';`))).join('\n');
-  const relServiceImports = Array.from(new Set(rels.map(r => `import '../services/${toFileName(r.targetEntity)}_service.dart';`))).join('\n');
+  const relServiceImports = Array.from(new Set(rels.map(r => `import '../services/${isModule ? `${toFileName(r.targetEntity)}_module_service.dart` : `${toFileName(r.targetEntity)}_service.dart`}';`))).join('\n');
 
   // Enums used by primitive fields
   const enumTypesUsed = Array.from(new Set(fields.filter(f => !f.isRelationship && parsedEnums?.[f.type]).map(f => f.type)));
@@ -107,7 +108,19 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
     return `    ${n}Ctrl.text = m?.${n}?.toString() ?? '';`;
   }).join('\n');
 
-  const fillRelSingles = singleRels.map(r => `    ${r.name}.value = m?.${r.name};`).join('\n');
+  const fillRelSingles = singleRels.map(r => {
+    return `    final ${r.name}Value = m?.${r.name};
+    if (${r.name}Value != null) {
+      final idx = ${r.name}Options.indexWhere((e) => e.id == ${r.name}Value.id);
+      if (idx != -1) {
+        ${r.name}.value = ${r.name}Options[idx];
+      } else {
+        ${r.name}.value = ${r.name}Value;
+      }
+    } else {
+      ${r.name}.value = null;
+    }`;
+  }).join('\n');
   const fillRelMultis = multiRelMeta.map(r => `    ${r.stateName}.assignAll(m?.${r.name} ?? const []);`).join('\n');
 
   // build model from form
@@ -163,7 +176,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
 
   // relation option loaders
   const singleLoaders = singleRels.map(r => {
-    const service = `${r.targetEntity}Service`;
+    const service = isModule ? `${r.targetEntity}ModuleService` : `${r.targetEntity}Service`;
     const tModel = `${r.targetEntity}Model`;
     const fname = r.name;
     return `
@@ -175,11 +188,13 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
       final res = await svc.listPaged(page: 0, size: 1000, sort: ['id,asc']);
       ${fname}Options.assignAll(res.items);
       final current = ${fname}.value;
-      final currentId = current?.id;
-      if (currentId != null) {
-        final idx = ${fname}Options.indexWhere((e) => e.id == currentId);
-        if (idx != -1) {
-          ${fname}.value = ${fname}Options[idx];
+      if (current != null) {
+        final currentId = current.id;
+        if (currentId != null) {
+          final idx = ${fname}Options.indexWhere((e) => e.id == currentId);
+          if (idx != -1) {
+            ${fname}.value = ${fname}Options[idx];
+          }
         }
       }
     } catch (e) {
@@ -191,7 +206,7 @@ function generateEntityControllerTemplate(entityName, fields, parsedEnums = {}, 
   }).join('\n');
 
   const multiLoaders = multiRelMeta.map(r => {
-    const service = `${r.targetEntity}Service`;
+    const service = isModule ? `${r.targetEntity}ModuleService` : `${r.targetEntity}Service`;
     const fname = r.name;
     return `
   Future<void> load${cap(fname)}Options() async {
@@ -220,10 +235,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
+import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
 import 'dart:html' as html;
 import '../core/env/env.dart';
+${isModule ? "import '../core/module_bridge.dart';" : ''}
 ${syncImport}import '../models/${toFileName(entityName)}_model.dart';
-import '../services/${toFileName(entityName)}_service.dart';
+import '../services/${isModule ? `${toFileName(entityName)}_module_service.dart` : `${toFileName(entityName)}_service.dart`}';
 ${enumImports ? enumImports + '\n' : ''}${relModelImports ? relModelImports + '\n' : ''}${relServiceImports ? relServiceImports + '\n' : ''}
 
 /// Controller for ${entityName} list & form state.
@@ -288,9 +305,26 @@ ${multiRelDecls}
 ${singleRels.map(r => `    load${cap(r.name)}Options();`).join('\n')}
 ${multiRelMeta.map(r => `    load${cap(r.name)}Options();`).join('\n')}
 
-    loadPage(0);
+    // In module mode, defer initial data load until tokens are available
+    ${isModule ? `_loadInitialData();` : `loadPage(0);`}
 ${syncInitCall}
   }
+
+  ${isModule ? `/// Load initial data, but only when authentication tokens are available
+  void _loadInitialData() {
+    // Check if we have valid tokens immediately
+    if (Get.isRegistered<ModuleBridge>() && Get.find<ModuleBridge>().hasValidTokens) {
+      loadPage(0);
+      return;
+    }
+
+    // Listen for token changes and load data when tokens become available
+    ever(Get.find<ModuleBridge>().accessTokenRx, (String? token) {
+      if (token != null && token.isNotEmpty && items.isEmpty) {
+        loadPage(0);
+      }
+    });
+  }` : ''}
 
   @override
   void onClose() {
@@ -475,16 +509,38 @@ ${buildModelLines}
   }
 
   void _info(String msg) {
-    if (!Get.isSnackbarOpen) {
-      Get.snackbar('Success', msg, snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 2));
-    }
+    ${isModule ? `// In module mode, just log the success since UI context may not be available
+    print('Success: \$msg');` : `if (!Get.isSnackbarOpen) {
+      final snackBar = SnackBar(
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        content: AwesomeSnackbarContent(
+          title: 'Success',
+          message: msg,
+          contentType: ContentType.success,
+        ),
+      );
+      ScaffoldMessenger.of(Get.context!).showSnackBar(snackBar);
+    }`}
   }
 
   void _error(String msg, Object e) {
     final detail = e.toString();
-    if (!Get.isSnackbarOpen) {
-      Get.snackbar('Error', '\$msg\\n\$detail', snackPosition: SnackPosition.BOTTOM, duration: const Duration(seconds: 4));
-    }
+    ${isModule ? `// In module mode, just log the error since UI context may not be available
+    print('Error: \$msg - \$detail');` : `if (!Get.isSnackbarOpen) {
+      final snackBar = SnackBar(
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        content: AwesomeSnackbarContent(
+          title: 'Error',
+          message: '\$msg\\n\$detail',
+          contentType: ContentType.failure,
+        ),
+      );
+      ScaffoldMessenger.of(Get.context!).showSnackBar(snackBar);
+    }`}
   }
 }
 

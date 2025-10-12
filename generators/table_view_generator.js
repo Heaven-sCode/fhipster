@@ -44,8 +44,9 @@ const { navDestinationsString } = require('./helpers/nav_destinations');
 const { jdlToDartType } = require('../parser/type_mapping');
 
 function generateTableViewTemplate(entityName, fields, allEntities = {}, options = {}) {
+  const isModule = !!options.isModule;
   const className = `${entityName}TableView`;
-  const controllerClass = `${entityName}Controller`;
+  const controllerClass = isModule ? `${entityName}ModuleController` : `${entityName}Controller`;
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
   const enableSQLite = !!options.enableSQLite;
@@ -57,6 +58,9 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   }));
   const enumTypesUsed = Array.from(new Set(fieldTypes.filter(info => info.isEnum).map(info => info.field.type)));
   const usesTemporalField = fieldTypes.some((info) => info.dartType === 'DateTime');
+
+  const controllerFileName = isModule ? `${toFileName(entityName)}_module_controller` : `${toFileName(entityName)}_controller`;
+  const formFileName = isModule ? `${toFileName(entityName)}_module_form` : `${toFileName(entityName)}_form`;
 
   // Determine child creation shortcuts for one-to-many relationships
   const childRelInfos = (fields || [])
@@ -72,8 +76,8 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
         label: labelize(f.name),
         childEntity,
         childField: backRef.name,
-        childController: `${childEntity}Controller`,
-        childForm: `${childEntity}Form`,
+        childController: isModule ? `${childEntity}ModuleController` : `${childEntity}Controller`,
+        childForm: isModule ? `${childEntity}ModuleForm` : `${childEntity}Form`,
       };
     })
     .filter(Boolean);
@@ -126,9 +130,18 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     childFieldLabelMapByEntity[info.entity] = info.mapName;
   });
 
-  const childControllerImports = Array.from(new Set(childRelInfos.map((info) => `import '../controllers/${toFileName(info.childEntity)}_controller.dart';`))).join('\n');
-  const childFormImports = Array.from(new Set(childRelInfos.map((info) => `import '../forms/${toFileName(info.childEntity)}_form.dart';`))).join('\n');
-  const childServiceImports = Array.from(new Set(childRelInfos.map((info) => `import '../services/${toFileName(info.childEntity)}_service.dart';`))).join('\n');
+  const childControllerImports = Array.from(new Set(childRelInfos.map((info) => {
+    const controllerFile = isModule ? `${toFileName(info.childEntity)}_module_controller.dart` : `${toFileName(info.childEntity)}_controller.dart`;
+    return `import '../controllers/${controllerFile}';`;
+  }))).join('\n');
+  const childFormImports = Array.from(new Set(childRelInfos.map((info) => {
+    const formFile = isModule ? `${toFileName(info.childEntity)}_module_form.dart` : `${toFileName(info.childEntity)}_form.dart`;
+    return `import '../forms/${formFile}';`;
+  }))).join('\n');
+  const childServiceImports = Array.from(new Set(childRelInfos.map((info) => {
+    const serviceFile = isModule ? `${toFileName(info.childEntity)}_module_service.dart` : `${toFileName(info.childEntity)}_service.dart`;
+    return `import '../services/${serviceFile}';`;
+  }))).join('\n');
   const childModelImports = Array.from(new Set(childRelInfos.map((info) => `import '../models/${toFileName(info.childEntity)}_model.dart';`))).join('\n');
 
   // Build DataColumn list (headers)
@@ -230,7 +243,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   }).join('\n');
 
   const syncImport = enableSQLite ? "import '../core/sync/sync_service.dart';\n" : '';
-  const intlImport = usesTemporalField ? "import 'package:intl/intl.dart';\n" : '';
+  const intlImport = usesTemporalField ? "import 'package:intl/intl.dart';\nimport 'package:intl/date_symbol_data_local.dart';\n" : '';
 
   const enumImports = enumTypesUsed
     .map(e => `import '../enums/${toFileName(e)}_enum.dart';`)
@@ -275,7 +288,17 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
       return await svc.list(filters: {'${info.childField}Id': {'equals': id}});
     } catch (e) {
       if (!Get.isSnackbarOpen) {
-        Get.snackbar('Error'.tr, 'Failed to load ${childLabel}'.tr);
+        final snackBar = SnackBar(
+          elevation: 0,
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.transparent,
+          content: AwesomeSnackbarContent(
+            title: 'Error'.tr,
+            message: 'Failed to load ${childLabel}'.tr,
+            contentType: ContentType.failure,
+          ),
+        );
+        ScaffoldMessenger.of(Get.context!).showSnackBar(snackBar);
       }
       return parent.${info.fieldName} ?? const [];
     }
@@ -305,16 +328,21 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
   }`;
   }).join('\n\n');
 
+  const appShellImport = isModule ? '' : "import '../core/app_shell.dart';\n";
+  const routesImport = isModule ? '' : "import '../core/routes.dart';\n";
+  const navigationDestinationsImport = isModule ? '' : "import '../core/navigation_destinations.dart';\n";
+  const navigationSidebarImport = isModule ? '' : "import '../widgets/navigation_sidebar.dart';\n";
+
   return `import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
+import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
 ${intlImport}
-import '../core/app_shell.dart';
-import '../core/env/env.dart';
-import '../core/routes.dart';
-import '../core/preferences/column_preferences.dart';
-import '../controllers/${toFileName(entityName)}_controller.dart';
+${appShellImport}import '../core/env/env.dart';
+${routesImport}${navigationDestinationsImport}${navigationSidebarImport}import '../core/preferences/column_preferences.dart';
+import '../controllers/${controllerFileName}.dart';
 import '../models/${toFileName(entityName)}_model.dart';
-import '../forms/${toFileName(entityName)}_form.dart';
+import '../forms/${formFileName}.dart';
 import '../widgets/${toFileName(entityName)}_filter_drawer.dart';
 import '../widgets/common/confirm_dialog.dart';
 ${enumImports ? enumImports + '\n' : ''}
@@ -359,6 +387,11 @@ ${columnSpecEntries}
 
   @override
   Widget build(BuildContext context) {
+    ${usesTemporalField ? `// Initialize date formatting for web
+    if (kIsWeb) {
+      initializeDateFormatting(Get.locale?.toString() ?? 'en');
+    }` : ''}
+
     final env = Env.get();
     final prefs = Get.find<ColumnPreferencesService>();
     if (!_columnsRegistered) {
@@ -389,15 +422,13 @@ ${columnSpecEntries}
       });
     }
 
-    return AppShell(
-      title: _title,
-      body: Scaffold(
-        key: _scaffoldKey,
-        endDrawer: ${entityName}FilterDrawer(
-          onApply: controller.applyFilters,
-          initialFilters: controller.filters,
-        ),
-        body: Obx(() {
+    ${isModule ? `return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: ${entityName}FilterDrawer(
+        onApply: controller.applyFilters,
+        initialFilters: controller.filters,
+      ),
+      body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;
         final total = controller.total.value;
@@ -688,8 +719,310 @@ ${columnSpecEntries}
           ],
         );
       }),
+    );` : `return AppShell(
+      title: _title,
+      body: Scaffold(
+        key: _scaffoldKey,
+        endDrawer: ${entityName}FilterDrawer(
+          onApply: controller.applyFilters,
+          initialFilters: controller.filters,
+        ),
+        body: Obx(() {
+        final items = controller.items;
+        final isLoading = controller.isLoading.value;
+        final total = controller.total.value;
+        final page = controller.page.value;
+        final size = controller.size.value;
+        prefs.layouts[_tableKey];
+        final layoutMode = prefs.layoutMode(_tableKey);
+        prefs.hidden[_tableKey];
+        var visibleDefs = prefs.visibleDefinitions(_tableKey);
+        if (visibleDefs.isEmpty) {
+          visibleDefs = _columnDefinitions;
+        }
+        final allSpecs = _buildAllColumnSpecs();
+        var specs = visibleDefs
+            .map((def) => _findSpec(def.field, allSpecs))
+            .whereType<_ColumnSpec<${modelClass}>>()
+            .toList();
+        if (specs.isEmpty) {
+          specs = List<_ColumnSpec<${modelClass}>>.from(allSpecs);
+        }
+
+        final sortEntries = controller.sort;
+        String? activeSortField;
+        bool isSortDescending = false;
+        if (sortEntries.isNotEmpty) {
+          final parts = sortEntries.first.split(',');
+          if (parts.isNotEmpty) {
+            activeSortField = parts.first;
+          }
+          if (parts.length > 1) {
+            isSortDescending = parts[1].toLowerCase() == 'desc';
+          }
+        }
+
+        int? sortColumnIndex;
+        bool sortAscending = !isSortDescending;
+        if (activeSortField != null) {
+          final index = specs.indexWhere((spec) => spec.field == activeSortField);
+          if (index != -1) {
+            sortColumnIndex = index;
+          }
+        }
+
+        return Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Theme.of(context).colorScheme.surface,
+                    Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                  ],
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+            // Toolbar: search + actions
+            Container(
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.shadow.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                // Search box
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: TextField(
+                    onChanged: controller.applySearch,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'Search'.tr,
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: () async {
+                    controller.beginCreate();
+                    await _openFormDialog(context, title: 'Create ${entityName}');
+                  },
+                  icon: const Icon(Icons.add),
+                  label: Text('New'.tr),
+                ),
+                OutlinedButton.icon(
+                  onPressed: isLoading ? null : () => controller.loadPage(page),
+                  icon: const Icon(Icons.refresh),
+                  label: Text('Refresh'.tr),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _openFilterDrawer,
+                  icon: const Icon(Icons.filter_list),
+                  label: Text('Filter'.tr),
+                ),
+                ToggleButtons(
+                  borderRadius: const BorderRadius.all(Radius.circular(8)),
+                  constraints: const BoxConstraints(minHeight: 36, minWidth: 40),
+                  isSelected: [
+                    layoutMode == 'table',
+                    layoutMode == 'cards',
+                  ],
+                  onPressed: (index) {
+                    prefs.setLayoutMode(_tableKey, index == 0 ? 'table' : 'cards');
+                  },
+                  children: const [
+                    Icon(Icons.table_chart),
+                    Icon(Icons.view_agenda_outlined),
+                  ],
+                ),
+                if (isLoading) const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                ),
+              ],
+            ),
+            ),
+            const SizedBox(height: 16),
+
+            // Table
+            Expanded(
+              child: Card(
+                clipBehavior: Clip.antiAlias,
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: layoutMode == 'table'
+                          ? Scrollbar(
+                              thumbVisibility: true,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                                sortColumnIndex: sortColumnIndex,
+                                sortAscending: sortAscending,
+                                headingRowHeight: 42,
+                                dataRowMinHeight: 40,
+                                dataRowMaxHeight: 56,
+                                columns: [
+                                  for (var i = 0; i < specs.length; i++)
+                                    DataColumn(
+                                      label: _buildSortLabel(context, controller, specs[i].field, specs[i].label, activeSortField, isSortDescending),
+                                      onSort: (_, __) => _toggleSort(controller, specs[i].field),
+                                    ),
+                                  DataColumn(label: Text('Actions'.tr)),
+                                ],
+                                rows: items.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final m = entry.value;
+                                  final cells = specs
+                                      .map((spec) => spec.cellBuilder(context, m))
+                                      .toList();
+                                  cells.add(DataCell(_buildRowActions(context, m)));
+                                  return DataRow(
+                                    color: index.isEven
+                                        ? MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.2))
+                                        : null,
+                                    cells: cells,
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          )
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: items.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final model = items[index];
+                                final detailTiles = <Widget>[];
+                                for (final spec in specs) {
+                                  final cell = spec.cellBuilder(context, model);
+                                  final valueWidget = cell.child;
+                                  if (_isValueWidgetEmpty(valueWidget)) continue;
+                                  detailTiles.add(
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 12),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          SizedBox(
+                                            width: 160,
+                                            child: Text(
+                                              spec.label,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.copyWith(fontWeight: FontWeight.w600),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(child: valueWidget),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return Card(
+                                  elevation: 3,
+                                  clipBehavior: Clip.antiAlias,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(
+                                        Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.7,
+                                      ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        ...detailTiles,
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: _buildRowActions(context, model),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+
+// Pagination bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+                        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+                      ),
+                      child: Row(
+                        children: [
+                          Text('Rows per page:'.tr),
+                          const SizedBox(width: 8),
+                          DropdownButton<int>(
+                            value: size,
+                            items: env.pageSizeOptions
+                                .map((e) => DropdownMenuItem<int>(value: e, child: Text(e.toString())))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) controller.changePageSize(v);
+                            },
+                          ),
+                          const Spacer(),
+                          Obx(() {
+                            final p = controller.page.value;
+                            final s = controller.size.value;
+                            final t = controller.total.value;
+                            final start = t == 0 ? 0 : (p * s) + 1;
+                            final end = ((p + 1) * s).clamp(0, t);
+                            return Text('\$start–\$end of \$t');
+                          }),
+                          IconButton(
+                            tooltip: 'Previous'.tr,
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: page > 0 && !isLoading ? () => controller.loadPage(page - 1) : null,
+                          ),
+                          IconButton(
+                            tooltip: 'Next'.tr,
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: ((page + 1) * size) < total && !isLoading
+                                ? () => controller.loadPage(page + 1)
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+              ],
+            ),
+            ),
+          ],
+        );
+      }),
       ),
-    );
+    );`}
   }
 
   void _openFilterDrawer() {
@@ -908,7 +1241,17 @@ ${columnSpecEntries}
       _openViewDialog(Get.context!, m);
     } catch (e) {
       if (!Get.isSnackbarOpen) {
-        Get.snackbar('Error'.tr, 'Failed to load ${entityName}'.tr);
+        final snackBar = SnackBar(
+          elevation: 0,
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.transparent,
+          content: AwesomeSnackbarContent(
+            title: 'Error'.tr,
+            message: 'Failed to load ${entityName}'.tr,
+            contentType: ContentType.failure,
+          ),
+        );
+        ScaffoldMessenger.of(Get.context!).showSnackBar(snackBar);
       }
     }
   }
@@ -998,15 +1341,20 @@ ${childRelInfos.map(info => `
 
   Future<bool> _quickCreate${info.childEntity}${cap(info.fieldName)}(BuildContext context, ${modelClass} parent) async {
     if ((parent.id ?? null) == null) {
-      Get.snackbar(
-        'Error'.tr,
-        'error.saveParentFirst'.trParams({
-          'parent': '${labelize(entityName)}',
-          'child': '${labelize(info.childEntity)}',
-        }),
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 3),
+      final snackBar = SnackBar(
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        content: AwesomeSnackbarContent(
+          title: 'Error'.tr,
+          message: 'error.saveParentFirst'.trParams({
+            'parent': '${labelize(entityName)}',
+            'child': '${labelize(info.childEntity)}',
+          }),
+          contentType: ContentType.failure,
+        ),
       );
+      ScaffoldMessenger.of(Get.context!).showSnackBar(snackBar);
       return false;
     }
     if (!Get.isRegistered<${info.childController}>()) {

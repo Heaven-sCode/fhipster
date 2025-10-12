@@ -1,7 +1,7 @@
 // generators/api_client_generator.js
 
 function generateApiClientTemplate(isModule = false) {
-  const conditionalImport = isModule ? "import 'module_bridge.dart';" : "";
+  const authImport = isModule ? "import 'module_bridge.dart';" : "import 'auth/auth_service.dart';";
 
   return `import 'dart:async';
 import 'dart:io';
@@ -10,26 +10,31 @@ import 'package:get/get_connect/http/src/request/request.dart' as get_http;
 import 'package:crypto/crypto.dart';
 
 import 'env/env.dart';
-import 'auth/auth_service.dart';
-${conditionalImport}
+${authImport}
 
-/// ApiClient wraps GetConnect and:
+${isModule ? '/// ModuleApiClient wraps GetConnect for module mode' : '/// ApiClient wraps GetConnect and:'}
 /// - injects Authorization header
 /// - enforces HTTPS when httpStrict=true
 /// - optional certificate pinning (SHA256 fingerprints)
-/// - supports both full app (AuthService) and module (ModuleBridge) modes
-class ApiClient extends GetConnect {
+${isModule ? '/// - uses ModuleBridge for auth tokens from parent app' : '/// - supports both full app (AuthService) and module (ModuleBridge) modes'}
+class ${isModule ? 'ModuleApiClient' : 'ApiClient'} extends GetConnect {
   late final EnvConfig _cfg;
-  late final dynamic _authService; // AuthService or ModuleBridge
-  final bool _isModule;
+  ${isModule ? 'ModuleBridge? _authService;' : 'late final dynamic _authService; // AuthService or ModuleBridge'}
+  ${isModule ? '' : 'final bool _isModule;'}
 
-  ApiClient({bool isModule = false}) : _isModule = isModule;
+  ${isModule ? 'ModuleApiClient()' : 'ApiClient({bool isModule = false}) : _isModule = isModule;'}
 
   @override
   void onInit() {
     super.onInit();
     _cfg = Env.get();
-    _authService = _isModule ? Get.find() : Get.find<AuthService>();
+    ${isModule ? '' : `// Initialize auth service - prefer ModuleBridge if available (module mode), otherwise AuthService
+    if (Get.isRegistered<ModuleBridge>()) {
+      _authService = Get.find<ModuleBridge>();
+      _isModule = true;
+    } else {
+      _authService = Get.find<AuthService>();
+    }`}
 
     httpClient.baseUrl = _cfg.apiHost;
 
@@ -45,7 +50,7 @@ class ApiClient extends GetConnect {
       return request;
     });
 
-    // Auto-refresh on 401 then retry once (only for full app mode)
+    ${isModule ? '' : `// Auto-refresh on 401 then retry once (only for full app mode)
     if (!_isModule) {
       httpClient.addResponseModifier((get_http.Request request, response) async {
         if (response.statusCode == 401) {
@@ -77,7 +82,7 @@ class ApiClient extends GetConnect {
         }
         return response;
       });
-    }
+    }`}
 
     // Optional: certificate pinning
     if (_cfg.pinnedSha256Certs.isNotEmpty) {
@@ -85,7 +90,31 @@ class ApiClient extends GetConnect {
     }
   }
 
-  /// Set auth tokens (used by ModuleBridge in module mode)
+  ${isModule ? `/// Set auth tokens (used by ModuleBridge in module mode)
+  void setAuthTokens({
+    String? accessToken,
+    String? refreshToken,
+    DateTime? accessTokenExpiry,
+    DateTime? refreshTokenExpiry,
+  }) {
+    if (_authService == null) {
+      _authService = Get.find<ModuleBridge>();
+    }
+    _authService!.setAuthTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      accessTokenExpiry: accessTokenExpiry,
+      refreshTokenExpiry: refreshTokenExpiry,
+    );
+  }
+
+  /// Clear auth tokens (used by ModuleBridge in module mode)
+  void clearAuthTokens() {
+    if (_authService == null) {
+      _authService = Get.find<ModuleBridge>();
+    }
+    _authService!.clearAuthTokens();
+  }` : `/// Set auth tokens (used by ModuleBridge in module mode)
   void setAuthTokens({
     String? accessToken,
     String? refreshToken,
@@ -107,7 +136,7 @@ class ApiClient extends GetConnect {
     if (!_isModule) return; // Only applicable in module mode
 
     _authService.clearAuthTokens();
-  }
+  }`}
 
   Future<Map<String, String>> _headers({bool forceFresh = false}) async {
     final h = <String, String>{
@@ -115,11 +144,14 @@ class ApiClient extends GetConnect {
     };
 
     String? token;
-    if (_isModule) {
+    ${isModule ? `if (_authService == null) {
+      _authService = Get.find<ModuleBridge>();
+    }
+    token = _authService!.accessToken;` : `if (_isModule) {
       token = _authService.accessToken;
     } else {
       token = await _authService.getAccessToken(forceFresh: forceFresh);
-    }
+    }`}
 
     if (token != null && token.isNotEmpty) {
       h['Authorization'] = 'Bearer \$token';

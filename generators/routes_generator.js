@@ -23,6 +23,11 @@ function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true, i
     ? "import '../views/settings/column_settings_view.dart';\nimport 'preferences/column_preferences.dart';\n"
     : '';
 
+  // Auth imports only when needed
+  const authImports = includeAuthGuards
+    ? "import 'auth/auth_service.dart';\nimport 'auth/auth_middleware.dart';\nimport 'auth/role_middleware.dart';\n"
+    : '';
+
   // Build GetPages for entities
   const entityPages = entityRoutes.map(r => {
     const middlewares = [];
@@ -69,10 +74,7 @@ function generateRoutesTemplate({ entityRoutes = [], includeAuthGuards = true, i
   return `import 'package:get/get.dart';
 
 import 'api_client.dart';
-import 'auth/auth_service.dart';
-import 'auth/auth_middleware.dart';
-import 'auth/role_middleware.dart';
-
+${includeAuthGuards ? '' : "import 'module_bridge.dart';\n"}${authImports}
 import '../views/splash_view.dart';
 import '../views/login_view.dart';
 import '../views/home_view.dart';
@@ -141,10 +143,13 @@ ${entityPages}
 }
 
 /// Ensure core singletons are registered once.
-/// Works for both Keycloak and JHipster JWT since they plug through AuthService/ApiClient.
+/// Works for both full apps (AuthService) and modules (ModuleBridge).
 void _ensureCore() {
   if (!Get.isRegistered<ApiClient>()) Get.put(ApiClient(), permanent: true);
-  if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);
+  ${includeAuthGuards
+    ? "if (!Get.isRegistered<AuthService>()) Get.put(AuthService(), permanent: true);"
+    : "if (!Get.isRegistered<ModuleBridge>()) Get.put(ModuleBridge(), permanent: true);"
+  }
 }
 `;
 }

@@ -17,9 +17,10 @@ function generateServiceTemplate(
     microserviceName = 'app',
     useGateway = false,
     tenantIsolation = {},
+    isModule = false,
   } = {}
 ) {
-  const className = `${entityName}Service`;
+  const className = isModule ? `${entityName}ModuleService` : `${entityName}Service`;
   const modelClass = `${entityName}Model`;
   const instance = lcFirst(entityName);
 
@@ -27,7 +28,8 @@ function generateServiceTemplate(
   // If useGateway was passed at generation time, bake the provided microserviceName; else null.
   const microOverrideInit = useGateway ? `'${microserviceName}'` : 'null';
 
-  const tenantEnabled = !!tenantIsolation.enabled && !!tenantIsolation.fieldName;
+  const tenantEnabled = !!tenantIsolation.enabled && !!tenantIsolation.fieldName && !isModule;
+  const apiClientClass = isModule ? 'ModuleApiClient' : 'ApiClient';
   const tenantImport = tenantEnabled ? "import '../core/auth/auth_service.dart';\n" : '';
   const tenantMembers = tenantEnabled
     ? `  final AuthService _auth = Get.find<AuthService>();\n` +
@@ -76,7 +78,12 @@ class PagedResult<T> {
 }
 
 class ${className} {
-  final ApiClient _api = Get.find<ApiClient>();
+  ${apiClientClass}? _api;
+
+  ${apiClientClass} get apiClient {
+    _api ??= Get.find<${apiClientClass}>();
+    return _api!;
+  }
 ${tenantMembers ? '\n' + tenantMembers : ''}
 
   // Resolve paths using Env; allow per-service gateway override baked at generation time.
@@ -94,7 +101,7 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     Map<String, dynamic>? filters,
     bool? distinct,
   }) async {
-    final res = await _api.get(
+    final res = await apiClient.get(
       _base,
       query: _buildQuery(
         page: page,
@@ -119,7 +126,7 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     Map<String, dynamic>? filters,
     bool? distinct,
   }) async {
-    final res = await _api.get(
+    final res = await apiClient.get(
       _base,
       query: _buildQuery(
         page: page,
@@ -135,13 +142,20 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     final List<dynamic> rows = _extractContentArray(body);
     final items = rows.map((e) => ${modelClass}.fromJson(Map<String, dynamic>.from(e))).toList();
 
-    // Try header first, then JSON page structure fields
+    // Try header first (case-insensitive), then JSON page structure fields
     int? total;
-    final hdr = res.headers?[Env.get().totalCountHeaderName];
+    final headerName = Env.get().totalCountHeaderName;
+    final hdr = res.headers?[headerName] ??
+                res.headers?[headerName.toLowerCase()] ??
+                res.headers?[headerName.toUpperCase()] ??
+                res.headers?['x-total-count'] ??
+                res.headers?['X-Total-Count'];
     if (hdr != null) {
       total = int.tryParse(hdr);
     } else if (body is Map) {
-      total = (body['totalElements'] as num?)?.toInt();
+      total = (body['totalElements'] as num?)?.toInt() ??
+              (body['total'] as num?)?.toInt() ??
+              (body['count'] as num?)?.toInt();
     }
     return PagedResult<${modelClass}>(items, total);
   }
@@ -155,7 +169,7 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
       filters: filters,
       distinct: distinct ?? Env.get().distinctByDefault,
     );
-    final res = await _api.get('\${_base}/count', query: q);
+    final res = await apiClient.get('\${_base}/count', query: q);
     if (!res.isOk) _throwHttp(res);
 
     final body = res.body;
@@ -205,7 +219,7 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     }
     final url = params.isEmpty ? _searchBase : '\${_searchBase}?\${params.join('&')}';
 
-    final res = await _api.get(url);
+    final res = await apiClient.get(url);
     if (!res.isOk) _throwHttp(res);
 
     final body = res.body;
@@ -213,23 +227,30 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     final items = rows.map((e) => ${modelClass}.fromJson(Map<String, dynamic>.from(e))).toList();
 
     int? total;
-    final hdr = res.headers?[Env.get().totalCountHeaderName];
+    final headerName = Env.get().totalCountHeaderName;
+    final hdr = res.headers?[headerName] ??
+                res.headers?[headerName.toLowerCase()] ??
+                res.headers?[headerName.toUpperCase()] ??
+                res.headers?['x-total-count'] ??
+                res.headers?['X-Total-Count'];
     if (hdr != null) {
       total = int.tryParse(hdr);
     } else if (body is Map) {
-      total = (body['totalElements'] as num?)?.toInt();
+      total = (body['totalElements'] as num?)?.toInt() ??
+              (body['total'] as num?)?.toInt() ??
+              (body['count'] as num?)?.toInt();
     }
     return PagedResult<${modelClass}>(items, total);
   }
 
   Future<${modelClass}> getOne(dynamic id) async {
-    final res = await _api.get('\${_base}/\${Uri.encodeComponent(id.toString())}');
+    final res = await apiClient.get('\${_base}/\${Uri.encodeComponent(id.toString())}');
     if (!res.isOk) _throwHttp(res);
     return ${modelClass}.fromJson(Map<String, dynamic>.from(res.body));
   }
 
   Future<${modelClass}> create(${modelClass} body) async {
-    final res = await _api.post(_base, ${tenantEnabled ? '_applyTenantPayload(body.toJson())' : 'body.toJson()'});
+    final res = await apiClient.post(_base, ${tenantEnabled ? '_applyTenantPayload(body.toJson())' : 'body.toJson()'});
     if (!res.isOk) _throwHttp(res);
     return ${modelClass}.fromJson(Map<String, dynamic>.from(res.body));
   }
@@ -239,14 +260,14 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
     if (id == null) {
       throw Exception('${modelClass}.update requires non-null id');
     }
-    final res = await _api.put('\${_base}/\${Uri.encodeComponent(id.toString())}', ${tenantEnabled ? '_applyTenantPayload(body.toJson())' : 'body.toJson()'});
+    final res = await apiClient.put('\${_base}/\${Uri.encodeComponent(id.toString())}', ${tenantEnabled ? '_applyTenantPayload(body.toJson())' : 'body.toJson()'});
     if (!res.isOk) _throwHttp(res);
     return ${modelClass}.fromJson(Map<String, dynamic>.from(res.body));
   }
 
   /// JSON Merge Patch (RFC 7396) partial update.
   Future<${modelClass}> patch(dynamic id, Map<String, dynamic> patchBody) async {
-    final res = await _api.request(
+    final res = await apiClient.request(
       '\${_base}/\${Uri.encodeComponent(id.toString())}',
       'PATCH',
       body: ${tenantEnabled ? '_applyTenantPayload(Map<String, dynamic>.from(patchBody))' : 'patchBody'},
@@ -257,7 +278,7 @@ ${tenantMembers ? '\n' + tenantMembers : ''}
   }
 
   Future<void> delete(dynamic id) async {
-    final res = await _api.delete('\${_base}/\${Uri.encodeComponent(id.toString())}');
+    final res = await apiClient.delete('\${_base}/\${Uri.encodeComponent(id.toString())}');
     if (!res.isOk) _throwHttp(res);
   }
 

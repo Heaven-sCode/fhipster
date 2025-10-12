@@ -1,10 +1,10 @@
-function generateColumnSettingsViewTemplate(navRoutes = []) {
+function generateColumnSettingsViewTemplate(navRoutes = [], isModule = false) {
+  const appShellImport = isModule ? '' : "import '../../core/app_shell.dart';\n";
+  const routesImport = isModule ? '' : "import '../../core/routes.dart';\n";
   return `import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../core/app_shell.dart';
-import '../../core/routes.dart';
-import '../../core/preferences/column_preferences.dart';
+${appShellImport}${routesImport}import '../../core/preferences/column_preferences.dart';
 
 class ColumnSettingsView extends StatelessWidget {
   const ColumnSettingsView({super.key});
@@ -14,9 +14,14 @@ class ColumnSettingsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prefs = Get.find<ColumnPreferencesService>();
-    return AppShell(
+    ${isModule ? `return Scaffold(
+      appBar: AppBar(title: Text(_title)),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Obx(() {` : `return AppShell(
       title: _title,
-      body: Obx(() {
+      body: Obx(() {`}
         final registry = prefs.registry;
         if (registry.isEmpty) {
           return Center(child: Text('No tables registered yet'.tr));
@@ -129,7 +134,9 @@ class ColumnSettingsView extends StatelessWidget {
           ),
         );
       }),
-    );
+    ${isModule ? `        ),
+      ),
+    );` : `    );`}
   }
 }
 `;

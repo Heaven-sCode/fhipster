@@ -16,17 +16,18 @@ import 'api_client.dart';
 /// Bridge service for module integration with parent app.
 /// Allows parent app to provide auth tokens that the module will use.
 class ModuleBridge extends GetxService {
-  final ApiClient _api = Get.find<ApiClient>();
+  final Rx<String?> _accessToken = Rx<String?>(null);
+  final Rx<String?> _refreshToken = Rx<String?>(null);
+  final Rx<DateTime?> _accessTokenExpiry = Rx<DateTime?>(null);
+  final Rx<DateTime?> _refreshTokenExpiry = Rx<DateTime?>(null);
 
-  String? _accessToken;
-  String? _refreshToken;
-  DateTime? _accessTokenExpiry;
-  DateTime? _refreshTokenExpiry;
+  String? get accessToken => _accessToken.value;
+  String? get refreshToken => _refreshToken.value;
+  DateTime? get accessTokenExpiry => _accessTokenExpiry.value;
+  DateTime? get refreshTokenExpiry => _refreshTokenExpiry.value;
 
-  String? get accessToken => _accessToken;
-  String? get refreshToken => _refreshToken;
-  DateTime? get accessTokenExpiry => _accessTokenExpiry;
-  DateTime? get refreshTokenExpiry => _refreshTokenExpiry;
+  Rx<String?> get accessTokenRx => _accessToken;
+  Rx<String?> get refreshTokenRx => _refreshToken;
 
   /// Set auth tokens provided by parent app
   void setAuthTokens({
@@ -35,35 +36,64 @@ class ModuleBridge extends GetxService {
     DateTime? accessTokenExpiry,
     DateTime? refreshTokenExpiry,
   }) {
-    _accessToken = accessToken;
-    _refreshToken = refreshToken;
-    _accessTokenExpiry = accessTokenExpiry;
-    _refreshTokenExpiry = refreshTokenExpiry;
+    _accessToken.value = accessToken;
+    _refreshToken.value = refreshToken;
+    _accessTokenExpiry.value = accessTokenExpiry;
+    _refreshTokenExpiry.value = refreshTokenExpiry;
 
-    // Update API client with new tokens
-    _api.setAuthTokens(
-      accessToken: accessToken,
-      refreshToken: refreshToken,
-      accessTokenExpiry: accessTokenExpiry,
-      refreshTokenExpiry: refreshTokenExpiry,
-    );
+    // ApiClient will get tokens from this ModuleBridge automatically
   }
 
   /// Clear auth tokens (logout)
   void clearAuthTokens() {
-    _accessToken = null;
-    _refreshToken = null;
-    _accessTokenExpiry = null;
-    _refreshTokenExpiry = null;
+    _accessToken.value = null;
+    _refreshToken.value = null;
+    _accessTokenExpiry.value = null;
+    _refreshTokenExpiry.value = null;
 
-    _api.clearAuthTokens();
+    // ApiClient will detect cleared tokens automatically
   }
 
   /// Check if tokens are available and valid
   bool get hasValidTokens {
-    if (_accessToken == null || _accessToken!.isEmpty) return false;
-    if (_accessTokenExpiry == null) return true;
-    return DateTime.now().isBefore(_accessTokenExpiry!.subtract(const Duration(seconds: 30)));
+    final token = _accessToken.value;
+    if (token == null || token.isEmpty) return false;
+    final expiry = _accessTokenExpiry.value;
+    if (expiry == null) return true;
+    return DateTime.now().isBefore(expiry.subtract(const Duration(seconds: 30)));
+  }
+}
+
+/// Public API for parent apps to inject auth tokens into the module.
+/// This allows parent apps to provide authentication without knowing internal module details.
+class ModuleAuthInjector {
+  static void setAuthTokens({
+    String? accessToken,
+    String? refreshToken,
+    DateTime? accessTokenExpiry,
+    DateTime? refreshTokenExpiry,
+  }) {
+    if (Get.isRegistered<ModuleApiClient>()) {
+      Get.find<ModuleApiClient>().setAuthTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        accessTokenExpiry: accessTokenExpiry,
+        refreshTokenExpiry: refreshTokenExpiry,
+      );
+    }
+  }
+
+  static void clearAuthTokens() {
+    if (Get.isRegistered<ModuleApiClient>()) {
+      Get.find<ModuleApiClient>().clearAuthTokens();
+    }
+  }
+
+  static bool get hasValidTokens {
+    if (Get.isRegistered<ModuleBridge>()) {
+      return Get.find<ModuleBridge>().hasValidTokens;
+    }
+    return false;
   }
 }
 `;

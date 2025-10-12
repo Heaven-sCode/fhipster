@@ -45,8 +45,9 @@ function wrapInGridCol(widgetExpr) {
 }
 
 function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}) {
+  const isModule = !!options.isModule;
   const className = `${entityName}Form`;
-  const controllerClass = `${entityName}Controller`;
+  const controllerClass = isModule ? `${entityName}ModuleController` : `${entityName}Controller`;
   const instance = lcFirst(entityName);
 
   const tenantIsolation = options.tenantIsolation || {};
@@ -54,6 +55,7 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
   const tenantFieldName = tenantIsolation.fieldName;
 
   const thisFileBase = toFileName(entityName); // e.g., UserProfile -> user_profile
+  const controllerFileBase = isModule ? `${thisFileBase}_module_controller` : `${thisFileBase}_controller`;
 
   // Collect enum imports used in primitive fields
   const enumTypesUsed = Array.from(
@@ -106,16 +108,31 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
     if (cat === 'enum') {
       // Use EnumType.values as the items source
       widgetExpr = `
-            Obx(() => DropdownButtonFormField<${f.type}>(
-              value: controller.${n}.value,
-              items: ${f.type}.values.map((e) => DropdownMenuItem<${f.type}>(
-                value: e,
-                child: Text(e.toString().split('.').last),
-              )).toList(),
-              onChanged: (v) => controller.${n}.value = v,
-              decoration: InputDecoration(labelText: '${label}'.tr),
-              validator: ${f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`},
-            ))`;
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return Obx(() => SizedBox(
+                  width: constraints.maxWidth,
+                  child: DropdownButtonFormField<${f.type}>(
+                    value: controller.${n}.value,
+                    items: ${f.type}.values.map((e) => DropdownMenuItem<${f.type}>(
+                      value: e,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: constraints.maxWidth - 48),
+                        child: Text(
+                          e.toString().split('.').last,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )).toList(),
+                    onChanged: (v) => controller.${n}.value = v,
+                    decoration: InputDecoration(labelText: '${label}'.tr),
+                    menuMaxHeight: 200,
+                    isExpanded: true,
+                    validator: ${f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`},
+                  ),
+                ));
+              },
+            )`;
       return wrapInGridCol(widgetExpr);
     }
 
@@ -232,30 +249,45 @@ function generateFormTemplate(entityName, fields, parsedEnums = {}, options = {}
       if (kind === 'manytoone' || kind === 'onetoone') {
         // Single relation: dropdown fed from <name>Options
         widgetExpr = `
-            Obx(() {
-              final loading = controller.${n}Loading.value;
-              final options = controller.${n}Options;
-              return DropdownButtonFormField<${tModel}>(
-                value: controller.${n}.value,
-                items: options.map((e) => DropdownMenuItem<${tModel}>(
-                  value: e,
-                  child: Text((e.id ?? '').toString()),
-                )).toList(),
-                onChanged: loading ? null : (v) => controller.${n}.value = v,
-                decoration: InputDecoration(
-                  labelText: '${label}'.tr,
-                  suffixIcon: loading ? const Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                  ) : IconButton(
-                    tooltip: 'Reload'.tr,
-                    icon: const Icon(Icons.refresh),
-                    onPressed: () => controller.load${cap(n)}Options(),
-                  ),
-                ),
-                validator: ${f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`},
-              );
-            })`;
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return Obx(() {
+                  final loading = controller.${n}Loading.value;
+                  final options = controller.${n}Options;
+                  return SizedBox(
+                    width: constraints.maxWidth,
+                    child: DropdownButtonFormField<${tModel}>(
+                      value: controller.${n}.value,
+                      items: options.map((e) => DropdownMenuItem<${tModel}>(
+                        value: e,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: constraints.maxWidth - 48),
+                          child: Text(
+                            (e.id ?? '').toString(),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )).toList(),
+                      onChanged: loading ? null : (v) => controller.${n}.value = v,
+                      decoration: InputDecoration(
+                        labelText: '${label}'.tr,
+                        suffixIcon: loading ? const Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                        ) : IconButton(
+                          tooltip: 'Reload'.tr,
+                          icon: const Icon(Icons.refresh),
+                          onPressed: () => controller.load${cap(n)}Options(),
+                        ),
+                      ),
+                      menuMaxHeight: 200,
+                      isExpanded: true,
+                      validator: ${f.required ? `(v) => v == null ? 'Please select ${label.toLowerCase()}'.tr : null` : `null`},
+                    ),
+                  );
+                });
+              },
+            )`;
         return wrapInGridCol(widgetExpr);
       } else {
         // Multi relation: creation dialog should not allow selecting child records
@@ -291,7 +323,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:responsive_grid/responsive_grid.dart';
 import '../widgets/fhipster_input_field.dart';
-import '../controllers/${thisFileBase}_controller.dart';
+import '../controllers/${controllerFileBase}.dart';
 import '../models/${thisFileBase}_model.dart';
 ${enumImports ? enumImports + '\n' : ''}${relModelImports ? relModelImports + '\n' : ''}
 

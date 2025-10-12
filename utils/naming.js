@@ -121,9 +121,9 @@ function enumDartType(enumName) { return pascalCase(enumName); }
 // -------------------- File names (your originals) --------------------
 function entityFileBase(entityName) { return `${snakeCase(entityName)}`; }
 function modelFileName(entityName) { return `${entityFileBase(entityName)}_model.dart`; }
-function serviceFileName(entityName) { return `${entityFileBase(entityName)}_service.dart`; }
-function controllerFileName(entityName) { return `${entityFileBase(entityName)}_controller.dart`; }
-function formFileName(entityName) { return `${entityFileBase(entityName)}_form.dart`; }
+function serviceFileName(entityName, isModule = false) { return isModule ? `${entityFileBase(entityName)}_module_service.dart` : `${entityFileBase(entityName)}_service.dart`; }
+function controllerFileName(entityName, isModule = false) { return isModule ? `${entityFileBase(entityName)}_module_controller.dart` : `${entityFileBase(entityName)}_controller.dart`; }
+function formFileName(entityName, isModule = false) { return isModule ? `${entityFileBase(entityName)}_module_form.dart` : `${entityFileBase(entityName)}_form.dart`; }
 function tableViewFileName(entityName) { return `${entityFileBase(entityName)}_table_view.dart`; }
 function enumFileName(enumName) { return `${snakeCase(enumName)}_enum.dart`; }
 
