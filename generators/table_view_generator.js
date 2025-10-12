@@ -182,7 +182,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     if (f.isRelationship) {
       const kind = (f.relationshipType || '').toLowerCase();
       if (kind === 'onetomany' || kind === 'manytomany') {
-        cellExpr = `Text(((m.${n}?.length) ?? 0).toString())`;
+        cellExpr = `Text(((m.${n}?.length) ?? 0).toString(), textAlign: TextAlign.right)`;
       } else {
         cellExpr = `Text(m.${n}?.id?.toString() ?? '')`;
       }
@@ -191,7 +191,11 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     } else if (info.dartType === 'DateTime') {
       cellExpr = `Text(_formatTemporal(m.${n}))`;
     } else {
-      cellExpr = `Text(m.${n} == null ? '' : m.${n}.toString())`;
+      let textAlign = '';
+      if (info.dartType === 'int' || info.dartType === 'double') {
+        textAlign = ', textAlign: TextAlign.right';
+      }
+      cellExpr = `Text(m.${n} == null ? '' : m.${n}.toString()${textAlign})`;
     }
     return `    _ColumnSpec<${modelClass}>(\n      field: '${n}',\n      label: '${label}',\n      isAudit: ${isAudit},\n      cellBuilder: (context, m) => DataCell(${cellExpr}),\n    )`;
   }).join(',\n');
@@ -558,6 +562,11 @@ ${columnSpecEntries}
                   icon: const Icon(Icons.filter_list),
                   label: Text('Filter'.tr),
                 ),
+                OutlinedButton.icon(
+                  onPressed: _openColumnSettingsDrawer,
+                  icon: const Icon(Icons.view_column_outlined),
+                  label: Text('Columns'.tr),
+                ),
                 ToggleButtons(
                   borderRadius: const BorderRadius.all(Radius.circular(8)),
                   constraints: const BoxConstraints(minHeight: 36, minWidth: 40),
@@ -572,11 +581,6 @@ ${columnSpecEntries}
                     Icon(Icons.table_chart),
                     Icon(Icons.view_agenda_outlined),
                   ],
-                ),
-                OutlinedButton.icon(
-                  onPressed: _openColumnSettingsDrawer,
-                  icon: const Icon(Icons.view_column_outlined),
-                  label: Text('Columns'.tr),
                 ),
                 if (isLoading) const Padding(
                   padding: EdgeInsets.only(left: 8),
@@ -603,6 +607,7 @@ ${columnSpecEntries}
                                 sortColumnIndex: sortColumnIndex,
                                 sortAscending: sortAscending,
                                 headingRowHeight: 42,
+                                headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)),
                                 dataRowMinHeight: 40,
                                 dataRowMaxHeight: 56,
                                 columns: [
@@ -616,13 +621,23 @@ ${columnSpecEntries}
                                 rows: items.asMap().entries.map((entry) {
                                   final index = entry.key;
                                   final m = entry.value;
-                                  final cells = specs
-                                      .map((spec) => spec.cellBuilder(context, m))
-                                      .toList();
-                                  cells.add(DataCell(_buildRowActions(context, m)));
+                                  final cells = specs.asMap().entries.map((entry) {
+                                    final i = entry.key;
+                                    final spec = entry.value;
+                                    final cell = spec.cellBuilder(context, m);
+                                    final child = i.isOdd ? Container( 
+                                      child: cell.child,
+                                    ) : cell.child;
+                                    return DataCell(child);
+                                  }).toList();
+                                  final actionsIndex = specs.length;
+                                  final actionsChild = actionsIndex.isOdd ? Container( 
+                                    child: _buildRowActions(context, m),
+                                  ) : _buildRowActions(context, m);
+                                  cells.add(DataCell(actionsChild));
                                   return DataRow(
-                                    color: index.isEven
-                                        ? MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.2))
+                                    color: index.isOdd
+                                        ? MaterialStateProperty.all(Theme.of(context).colorScheme.primaryContainer.withOpacity(0.2))
                                         : null,
                                     cells: cells,
                                   );
@@ -880,6 +895,11 @@ ${columnSpecEntries}
                   icon: const Icon(Icons.filter_list),
                   label: Text('Filter'.tr),
                 ),
+                OutlinedButton.icon(
+                  onPressed: _openColumnSettingsDrawer,
+                  icon: const Icon(Icons.view_column_outlined),
+                  label: Text('Columns'.tr),
+                ),
                 ToggleButtons(
                   borderRadius: const BorderRadius.all(Radius.circular(8)),
                   constraints: const BoxConstraints(minHeight: 36, minWidth: 40),
@@ -894,11 +914,6 @@ ${columnSpecEntries}
                     Icon(Icons.table_chart),
                     Icon(Icons.view_agenda_outlined),
                   ],
-                ),
-                OutlinedButton.icon(
-                  onPressed: _openColumnSettingsDrawer,
-                  icon: const Icon(Icons.view_column_outlined),
-                  label: Text('Columns'.tr),
                 ),
                 if (isLoading) const Padding(
                   padding: EdgeInsets.only(left: 8),
@@ -927,6 +942,9 @@ ${columnSpecEntries}
                                 sortColumnIndex: sortColumnIndex,
                                 sortAscending: sortAscending,
                                 headingRowHeight: 42,
+                                headingRowColor: MaterialStateProperty.all(Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)),
+                                dividerThickness: 0,
+                                dividerThickness: 0,
                                 dataRowMinHeight: 40,
                                 dataRowMaxHeight: 56,
                                 columns: [
@@ -940,13 +958,23 @@ ${columnSpecEntries}
                                 rows: items.asMap().entries.map((entry) {
                                   final index = entry.key;
                                   final m = entry.value;
-                                  final cells = specs
-                                      .map((spec) => spec.cellBuilder(context, m))
-                                      .toList();
-                                  cells.add(DataCell(_buildRowActions(context, m)));
+                                  final cells = specs.asMap().entries.map((entry) {
+                                    final i = entry.key;
+                                    final spec = entry.value;
+                                    final cell = spec.cellBuilder(context, m);
+                                    final child = i.isOdd ? Container( 
+                                      child: cell.child,
+                                    ) : cell.child;
+                                    return DataCell(child);
+                                  }).toList();
+                                  final actionsIndex = specs.length;
+                                  final actionsChild = actionsIndex.isOdd ? Container( 
+                                    child: _buildRowActions(context, m),
+                                  ) : _buildRowActions(context, m);
+                                  cells.add(DataCell(actionsChild));
                                   return DataRow(
-                                    color: index.isEven
-                                        ? MaterialStateProperty.all(Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.2))
+                                    color: index.isOdd
+                                        ? MaterialStateProperty.all(Theme.of(context).colorScheme.primaryContainer.withOpacity(0.2))
                                         : null,
                                     cells: cells,
                                   );

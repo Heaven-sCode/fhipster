@@ -22,7 +22,7 @@ class ${isModule ? 'ModuleApiClient' : 'ApiClient'} extends GetConnect {
   ${isModule ? 'ModuleBridge? _authService;' : 'late final dynamic _authService; // AuthService or ModuleBridge'}
   ${isModule ? '' : 'final bool _isModule;'}
 
-  ${isModule ? 'ModuleApiClient()' : 'ApiClient({bool isModule = false}) : _isModule = isModule;'}
+  ${isModule ? 'ModuleApiClient();' : 'ApiClient({bool isModule = false}) : _isModule = isModule;'}
 
   @override
   void onInit() {
