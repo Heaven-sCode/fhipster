@@ -601,8 +601,11 @@ ${columnSpecEntries}
                   children: [
                     Expanded(
                       child: layoutMode == 'table'
-                          ? SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
+                          ? Scrollbar(
+                              thumbVisibility: true,
+                              child: SingleChildScrollView(
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
                           child: DataTable(
                                 sortColumnIndex: sortColumnIndex,
                                 sortAscending: sortAscending,
@@ -642,6 +645,8 @@ ${columnSpecEntries}
                                     cells: cells,
                                   );
                                 }).toList(),
+                              ),
+                                ),
                               ),
                             )
                           : ListView.separated(
@@ -937,7 +942,8 @@ ${columnSpecEntries}
                           ? Scrollbar(
                               thumbVisibility: true,
                               child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
                           child: DataTable(
                                 sortColumnIndex: sortColumnIndex,
                                 sortAscending: sortAscending,
@@ -980,8 +986,9 @@ ${columnSpecEntries}
                                   );
                                 }).toList(),
                               ),
-                            ),
-                          )
+                                ),
+                              ),
+                            )
                           : ListView.separated(
                               padding: const EdgeInsets.all(16),
                               itemCount: items.length,
