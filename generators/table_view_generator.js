@@ -352,6 +352,7 @@ class ${className} extends GetView<${controllerClass}> {
   ${className}({super.key});
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
+  final RxString _activeDrawer = ''.obs;
 
   static const String _tableKey = '${toFileName(entityName)}';
   static const String _tableLabel = '${escapeDartString(labelize(entityName))}';
@@ -424,10 +425,28 @@ ${columnSpecEntries}
 
     ${isModule ? `return Scaffold(
       key: _scaffoldKey,
-      endDrawer: ${entityName}FilterDrawer(
-        onApply: controller.applyFilters,
-        initialFilters: controller.filters,
-      ),
+      onEndDrawerChanged: (isOpen) {
+        if (!isOpen) {
+          _activeDrawer.value = '';
+        }
+      },
+      endDrawer: Obx(() {
+        final active = _activeDrawer.value;
+        if (active == 'filter') {
+          return ${entityName}FilterDrawer(
+            onApply: controller.applyFilters,
+            initialFilters: controller.filters,
+          );
+        }
+        if (active == 'columns') {
+          return _ColumnSettingsDrawer(
+            tableKey: _tableKey,
+            tableLabel: _tableLabel,
+            prefs: prefs,
+          );
+        }
+        return const SizedBox.shrink();
+      }),
       body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;
@@ -553,6 +572,11 @@ ${columnSpecEntries}
                     Icon(Icons.table_chart),
                     Icon(Icons.view_agenda_outlined),
                   ],
+                ),
+                OutlinedButton.icon(
+                  onPressed: _openColumnSettingsDrawer,
+                  icon: const Icon(Icons.view_column_outlined),
+                  label: Text('Columns'.tr),
                 ),
                 if (isLoading) const Padding(
                   padding: EdgeInsets.only(left: 8),
@@ -723,10 +747,28 @@ ${columnSpecEntries}
       title: _title,
       body: Scaffold(
         key: _scaffoldKey,
-        endDrawer: ${entityName}FilterDrawer(
-          onApply: controller.applyFilters,
-          initialFilters: controller.filters,
-        ),
+        onEndDrawerChanged: (isOpen) {
+          if (!isOpen) {
+            _activeDrawer.value = '';
+          }
+        },
+        endDrawer: Obx(() {
+          final active = _activeDrawer.value;
+          if (active == 'filter') {
+            return ${entityName}FilterDrawer(
+              onApply: controller.applyFilters,
+              initialFilters: controller.filters,
+            );
+          }
+          if (active == 'columns') {
+            return _ColumnSettingsDrawer(
+              tableKey: _tableKey,
+              tableLabel: _tableLabel,
+              prefs: prefs,
+            );
+          }
+          return const SizedBox.shrink();
+        }),
         body: Obx(() {
         final items = controller.items;
         final isLoading = controller.isLoading.value;
@@ -852,6 +894,11 @@ ${columnSpecEntries}
                     Icon(Icons.table_chart),
                     Icon(Icons.view_agenda_outlined),
                   ],
+                ),
+                OutlinedButton.icon(
+                  onPressed: _openColumnSettingsDrawer,
+                  icon: const Icon(Icons.view_column_outlined),
+                  label: Text('Columns'.tr),
                 ),
                 if (isLoading) const Padding(
                   padding: EdgeInsets.only(left: 8),
@@ -1026,6 +1073,12 @@ ${columnSpecEntries}
   }
 
   void _openFilterDrawer() {
+    _activeDrawer.value = 'filter';
+    _scaffoldKey.currentState?.openEndDrawer();
+  }
+
+  void _openColumnSettingsDrawer() {
+    _activeDrawer.value = 'columns';
     _scaffoldKey.currentState?.openEndDrawer();
   }
 
@@ -1662,6 +1715,136 @@ ${enumTypesUsed.map(enumName => `  if (value is ${enumName}) {
   final raw = value.toString();
   final token = raw.contains('.') ? raw.split('.').last : raw;
   return _enumTokenLabels[token] ?? _humanizeEnumToken(token);
+}
+
+class _ColumnSettingsDrawer extends StatelessWidget {
+  const _ColumnSettingsDrawer({
+    required this.tableKey,
+    required this.tableLabel,
+    required this.prefs,
+  });
+
+  final String tableKey;
+  final String tableLabel;
+  final ColumnPreferencesService prefs;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 360,
+      child: Drawer(
+        child: SafeArea(
+          child: Obx(() {
+            prefs.layouts[tableKey];
+            prefs.hidden[tableKey];
+            prefs.orders[tableKey];
+            final columns = prefs.orderedDefinitions(tableKey);
+            final layoutMode = prefs.layoutMode(tableKey);
+            if (columns.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('No columns available'.tr),
+                ),
+              );
+            }
+            final orderFields = columns.map((c) => c.field).toList();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Column Settings'.tr, style: Theme.of(context).textTheme.titleMedium),
+                            const SizedBox(height: 4),
+                            Text(tableLabel, style: Theme.of(context).textTheme.bodySmall),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close'.tr,
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Layout'.tr, style: Theme.of(context).textTheme.titleSmall),
+                      ToggleButtons(
+                        borderRadius: const BorderRadius.all(Radius.circular(8)),
+                        constraints: const BoxConstraints(minHeight: 32, minWidth: 40),
+                        isSelected: [
+                          layoutMode == 'table',
+                          layoutMode == 'cards',
+                        ],
+                        onPressed: (index) {
+                          prefs.setLayoutMode(tableKey, index == 0 ? 'table' : 'cards');
+                        },
+                        children: const [
+                          Icon(Icons.table_chart),
+                          Icon(Icons.view_agenda_outlined),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ReorderableListView.builder(
+                    key: PageStorageKey<String>('column-settings-' + tableKey),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    buildDefaultDragHandles: false,
+                    itemCount: columns.length,
+                    onReorder: (oldIndex, newIndex) {
+                      if (newIndex > oldIndex) newIndex -= 1;
+                      final updated = List<String>.from(orderFields);
+                      final moved = updated.removeAt(oldIndex);
+                      updated.insert(newIndex, moved);
+                      prefs.setColumnOrder(tableKey, updated);
+                    },
+                    itemBuilder: (context, index) {
+                      final column = columns[index];
+                      final visible = prefs.isVisible(tableKey, column.field);
+                      return Container(
+                        key: ValueKey(column.field),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: SwitchListTile(
+                          controlAffinity: ListTileControlAffinity.trailing,
+                          secondary: ReorderableDragStartListener(
+                            index: index,
+                            child: const Icon(Icons.drag_indicator),
+                          ),
+                          title: Text(column.label),
+                          subtitle: column.isAudit ? Text('Audit field'.tr) : null,
+                          value: visible,
+                          onChanged: (value) => prefs.setColumnVisible(tableKey, column.field, value),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          }),
+        ),
+      ),
+    );
+  }
 }
 
 class _ColumnSpec<T> {

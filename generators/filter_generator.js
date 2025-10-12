@@ -222,67 +222,91 @@ class _${className}State extends State<${className}> {
 
   @override
   Widget build(BuildContext context) {
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.8,
-      child: Column(
-        children: [
-          AppBar(
-            title: Text('Filters'.tr),
-            automaticallyImplyLeading: false,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 360,
+      child: Drawer(
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Filters'.tr, style: theme.textTheme.titleMedium),
+                          const SizedBox(height: 4),
+                          Text('Refine your results'.tr, style: theme.textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close'.tr,
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    ..._criteria.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final crit = entry.value;
+                      return _buildCriterionCard(index, crit);
+                    }),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _addCriterion,
+                      icon: const Icon(Icons.add),
+                      label: Text('Add Filter'.tr),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _clearFilters,
+                        child: Text('Clear'.tr),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _applyFilters,
+                        child: Text('Apply'.tr),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                ..._criteria.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final crit = entry.value;
-                  return _buildCriterionCard(index, crit);
-                }),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: _addCriterion,
-                  icon: const Icon(Icons.add),
-                  label: Text('Add Filter'.tr),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _clearFilters,
-                    child: Text('Clear'.tr),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _applyFilters,
-                    child: Text('Apply'.tr),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildCriterionCard(int index, _CriterionState crit) {
     final fieldSpec = _fieldSpecs.firstWhere((spec) => spec.field == crit.field, orElse: () => _fieldSpecs.first);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
