@@ -182,7 +182,7 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     if (f.isRelationship) {
       const kind = (f.relationshipType || '').toLowerCase();
       if (kind === 'onetomany' || kind === 'manytomany') {
-        cellExpr = `Text(((m.${n}?.length) ?? 0).toString(), textAlign: TextAlign.right)`;
+        cellExpr = `Container(alignment: Alignment.centerRight, child: Text(((m.${n}?.length) ?? 0).toString()))`;
       } else {
         cellExpr = `Text(m.${n}?.id?.toString() ?? '')`;
       }
@@ -191,11 +191,11 @@ function generateTableViewTemplate(entityName, fields, allEntities = {}, options
     } else if (info.dartType === 'DateTime') {
       cellExpr = `Text(_formatTemporal(m.${n}))`;
     } else {
-      let textAlign = '';
       if (info.dartType === 'int' || info.dartType === 'double') {
-        textAlign = ', textAlign: TextAlign.right';
+        cellExpr = `Container(alignment: Alignment.centerRight, child: Text(m.${n} == null ? '' : m.${n}.toString()))`;
+      } else {
+        cellExpr = `Text(m.${n} == null ? '' : m.${n}.toString())`;
       }
-      cellExpr = `Text(m.${n} == null ? '' : m.${n}.toString()${textAlign})`;
     }
     return `    _ColumnSpec<${modelClass}>(\n      field: '${n}',\n      label: '${label}',\n      isAudit: ${isAudit},\n      cellBuilder: (context, m) => DataCell(${cellExpr}),\n    )`;
   }).join(',\n');
